@@ -53,31 +53,73 @@ int main(int argc, char **argv){
 		memset(ihdr, 0, DATA_IHDR_SIZE);
 				
 		/* with header read, should move 8 bytes from the current pointer pos */
-		if(get_png_data_IHDR(ihdr, f, 8, SEEK_CUR) != 0){
+		if(get_png_data_IHDR(ihdr, f, (CHUNK_LEN_SIZE + CHUNK_TYPE_SIZE), SEEK_CUR) != 0){
 			printf("Error reading IHDR chunk from: %s\n", argv[1]);
 			fclose(f);
 			free(ihdr);
 			free(header);
 			return -1;
 		}
-		printf("%s: %d x %d\n", argv[1], get_png_width(ihdr), get_png_height(ihdr));
+		int png_width = get_png_width(ihdr);
+		int png_height = get_png_height(ihdr);
+		printf("%s: %d x %d\n", argv[1], png_width, png_height);
 		free(ihdr);
 
 		/* check if crc value match */
 		U32 *crc_p = malloc(sizeof(U32));
 			/* IHDR crc check */
-				/* compute expected IHDR crc */
-				U32 expected_crc = crc(f, sizeof(U32));
 				/* read IHDR crc */
-				elementsRead = fread(crc_p, sizeof(U32), 1, f);
+				elementsRead = fread(crc_p, CHUNK_CRC_SIZE, 1, f);
+				/* compute expected IHDR crc */
+				U32 expected_crc = crc(f, CHUNK_CRC_SIZE);
 				if(elementsRead != 1){
 					/* error handling */
-					printf("Error: can't read the CRC of %s", argv[1]);
+					printf("Error: can't read the CRC of %s\n", argv[1]);
 				}
 				if(expected_crc != *crc_p){
-					printf();
+					printf("IHDR chunk CRC error: computed %d, expected %d\n", *crc_p, expected_crc);
+				}
+			
+			/* IDAT crc check */
+				/* compute expected IDAT crc */
+				long offset = CHUNK_LEN_SIZE + CHUNK_TYPE_SIZE + png_height*(png_width*4 + 1);
+				/* move the file pointer */
+				if(fseek(f, offset, SEEK_CUR) != 0){
+					/* for handling error */
+					printf("Error: can't move file pointer\n");
+					return -1;
+				}
+				expected_crc = crc(f, CHUNK_CRC_SIZE);
+				/* read IDAT crc */
+				elementsRead = fread(crc_p, CHUNK_CRC_SIZE, 1, f);
+				if(elementsRead != 1){
+					/* error handling */
+					printf("Error: can't read the CRC of %s\n", argv[1]);
+				}
+				if(expected_crc != *crc_p){
+					printf("IDAT chunk CRC error: computed %d, expected %d\n", *crc_p, expected_crc);
 				}
 
+			/* IEND crc check */
+				/* compute expected IEND crc */
+				offset = CHUNK_LEN_SIZE + CHUNK_TYPE_SIZE;
+				/* move the file pointer */
+				if(fseek(f, offset, SEEK_CUR) != 0){
+					/* for handling error */
+					printf("Error: can't move file pointer\n");
+					return -1;
+				}
+				expected_crc = crc(f, CHUNK_CRC_SIZE);
+				/* read IEND crc */
+				elementsRead = fread(crc_p, CHUNK_CRC_SIZE, 1, f);
+				if(elementsRead != 1){
+					/* error handling */
+					printf("Error: can't read the CRC of %s\n", argv[1]);
+				}
+				if(expected_crc != *crc_p){
+					printf("IEND chunk CRC error: computed %d, expected %d\n", *crc_p, expected_crc);
+				}
+		free(crc_p);
 	} else if(png_state == 0){
 		printf("%s: Not a PNG file\n", argv [1]);
 	} else{
