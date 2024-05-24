@@ -7,10 +7,6 @@
 #include <string.h>
 #include <fcntl.h>
 #include "lab_png.h"
-#include "zutil.h"
-
-int read_IDAT_size(U32 *out, U32 *height, U32 *width, long offset, int whence, FILE *fp);
-int read_IDAT_data(U8 **out, U64 data_length, long offset, int whence, FILE *fp);
 
 int main(int argc, char *argv[])
 {
@@ -37,36 +33,21 @@ int main(int argc, char *argv[])
 	    }
 
         /* Read IDAT compressed data length */
-            U32 *source_width = malloc(sizeof(U32));
-            U32 *source_height = malloc(sizeof(U32));
-            U64 *source_length = malloc(sizeof(U64));
-            if(source_length == NULL || source_width == NULL || source_height == NULL){
-                printf("Unable to allocate memory\n");
-                buf_alluncomp[i-1] = NULL;
-                free(source_length);
-                free(source_width);
-                free(source_width);
+            U32 source_width, source_height;
+            U64 source_len;
+            /* file pointer parameters */
+            long offset = PNG_SIG_SIZE + CHUNK_LEN_SIZE + CHUNK_TYPE_SIZE;
+            int whence = SEEK_SET;
+            /* if errors occur when reading IDAT length, move on to next file */
+            if(read_IDAT_size(&source_len, &source_height, &source_width, offset, whence, f) != 0){
+                printf("Error reading IDAT data length for file %s\n", argv[i]);
                 buf_alluncomp[i-1] = NULL;
                 fclose(f);
                 continue;
             }
 
-            /* file pointer parameters */
-            long offset = PNG_SIG_SIZE + CHUNK_LEN_SIZE + CHUNK_TYPE_SIZE;
-            int whence = SEEK_SET;
-            /* temporary store data length of IDAT */
-            U32 temp_len;
-            /* if errors occur when reading IDAT length, move on to next file */
-            if(read_IDAT_size(&temp_len, source_height, source_width, offset, whence, f) != 0){
-                printf("Error reading IDAT data length for file %s\n", argv[i]);
-                free(source_length);
-                free(source_width);
-                free(source_height);
-                buf_alluncomp[i-1] = NULL;
-                fclose(f);
-                continue;
-            }
-            *source_length = ntohl(temp_len);
+            /* For decoding purpose */
+            printf("Expected decompressed data length for file %s: %u * (%u *4 + 1) = %u\n", argv[i], source_height, source_width, source_height*(source_width*4+1));
 
         /* Read IDAT data */
             /* move file pointer to the start of data part of IDAT chunck*/
@@ -76,24 +57,18 @@ int main(int argc, char *argv[])
             /* buffer that stores the compressed IDAT */
             U8 *buf_comp = NULL;
             /* read the compressed data of IDAT chunk to buf_comp*/
-            if(read_IDAT_data(&buf_comp, *source_length, CHUNK_TYPE_SIZE, SEEK_CUR, f) != 0){
+            if(read_IDAT_data(&buf_comp, source_len, CHUNK_TYPE_SIZE, SEEK_CUR, f) != 0){
                 printf("Error reading IDAT data for file %s\n", argv[i]);
-                free(source_length);
-                free(source_width);
-                free(source_height);
                 buf_alluncomp[i-1] = NULL;
                 fclose(f);
                 continue;
             }
 
-        /* decompress the data of IDAT chunk and store it in buf_alluncomp */
-            U64 decomp_len = (*source_height)* ((*source_width)*4+1);
+        /* Decompress the data of IDAT chunk and store it in buf_alluncomp */
+            U64 decomp_len = (source_height) * ((source_width) * 4 + 1);
             U8 *decomp_dest = (U8 *)malloc(decomp_len);
             if (decomp_dest == NULL) {
                 printf("Error allocating memory for decompressed data for file %s\n", argv[i]);
-                free(source_length);
-                free(source_width);
-                free(source_height);
                 free(buf_comp);
                 buf_alluncomp[i - 1] = NULL;
                 fclose(f);
@@ -102,12 +77,9 @@ int main(int argc, char *argv[])
             memset(decomp_dest, 0, decomp_len);
 
             /* decompress data to decomp_dest */
-            int return_val = mem_inf(decomp_dest, &decomp_len, buf_comp, *source_length);
+            int return_val = mem_inf(decomp_dest, &decomp_len, buf_comp, source_len);
             if (return_val != Z_OK) {
                 printf("Decompression failed for file %s\n", argv[i]);
-                free(source_length);
-                free(source_width);
-                free(source_height);
                 free(buf_comp);
                 free(decomp_dest);
                 buf_alluncomp[i-1] = NULL;
@@ -115,14 +87,11 @@ int main(int argc, char *argv[])
                 continue;
             }
 
-            printf("Decompressed length: %lu\n", decomp_len);
+            printf("Decompressed length for file %s: %lu\n", argv[i], decomp_len);
 
         /* stores the decompressed png in the array */
             buf_alluncomp[i-1] = decomp_dest;
 
-        free(source_length);
-        free(source_width);
-        free(source_height);
         free(buf_comp);
         fclose(f);
     }
@@ -139,34 +108,24 @@ int main(int argc, char *argv[])
 }
 
 /* read data length of IDAT chunk into out */
-int read_IDAT_size(U32 *out, U32 *height, U32 *width, long offset, int whence, FILE *fp){
+int read_IDAT_size(U64 *out, U32 *height, U32 *width, long offset, int whence, FILE *fp){
     /* calculate size of IDAT data chunck */
 	    /* create IHDR chunk for the png */
-	    struct data_IHDR *ihdr = malloc(DATA_IHDR_SIZE);
-	    if(ihdr == NULL){
-		    return -1;
-	    }
-	    memset(ihdr, 0, DATA_IHDR_SIZE);
-	    if(get_png_data_IHDR(ihdr, fp, offset, whence) != 0){
-		    free(ihdr);
-		    return -1;
-	    }
+	    struct data_IHDR ihdr;
+	    if(get_png_data_IHDR(&ihdr, fp, offset, whence) != 0) return -1;
 
         /* data length of the IDAT chunk */
-	    *height = ihdr->height;
-        *width = ihdr->width;
-	    free(ihdr);
+	    *height = ihdr.height;
+        *width = ihdr.width;
 
     /* read the length of compressed data */
-        if(fseek(fp, CHUNK_CRC_SIZE, SEEK_CUR) != 0){
-            printf("Error moving file pointer to IDAT chunk\n");
-            return -1;
-        }
-        int elementsRead = fread(out, CHUNK_LEN_SIZE, 1, fp);
-        if(elementsRead != 1){
-            printf("Error: fail to read IDAT length chunk\n");
-            return -1;
-        }
+        if(fseek(fp, CHUNK_CRC_SIZE, SEEK_CUR) != 0) return -1;
+
+        /* temporary variable to store data length of png */
+        U32 temp_len;
+        if(fread(&temp_len, CHUNK_LEN_SIZE, 1, fp) != 1) return -1;
+
+        *out = ntohl(temp_len);
         return 0;
 }
 
@@ -189,9 +148,8 @@ int read_IDAT_data(U8 **out, U64 data_length, long offset, int whence, FILE *fp)
 	}
 
     /* read data part */
-    int elementsRead = fread(*out, 1, data_length, fp);
-    if(elementsRead != data_length){
-        printf("Error reading IDAT data: Expected: %lu, Actual: %d\n", data_length, elementsRead);
+    if(fread(*out, 1, data_length, fp) != data_length){
+        printf("Error reading IDAT data\n");
         free(*out);
         return -1;
     }
