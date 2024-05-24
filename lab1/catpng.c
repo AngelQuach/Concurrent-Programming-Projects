@@ -16,9 +16,17 @@ int main(int argc, char *argv[])
         return -1;
     }
 
+    /* length of the total uncompressed png */
+    U64 totalDecomp_len = 0;
+    /* width of each compressed png */
+    U32 const_width;
+    /* height of each compressed png, decompressed png */
+    U32 comp_height[argc-1];
+    U32 decomp_height[argc-1];
+
     /* buffer that stores pointers to the uncompressed IDAT */
-    U8 **buf_alluncomp = (U8**)malloc((argc-1) * sizeof(U8 *));
-    if (buf_alluncomp == NULL) {
+    U8 **buf_alldecomp = (U8**)malloc((argc-1) * sizeof(U8 *));
+    if (buf_alldecomp == NULL) {
         printf("Error allocating memory for buffer array\n");
         return -1;
     }
@@ -28,26 +36,22 @@ int main(int argc, char *argv[])
         FILE *f = fopen(argv[i], "rb");
         if(f == NULL){
 		    printf("Unable to open file. %s is a invalid name?\n", argv[1]);
-            buf_alluncomp[i-1] = NULL;
+            buf_alldecomp[i-1] = NULL;
 		    continue;
 	    }
 
         /* Read IDAT compressed data length */
-            U32 source_width, source_height;
             U64 source_len;
             /* file pointer parameters */
             long offset = PNG_SIG_SIZE + CHUNK_LEN_SIZE + CHUNK_TYPE_SIZE;
             int whence = SEEK_SET;
             /* if errors occur when reading IDAT length, move on to next file */
-            if(read_IDAT_size(&source_len, &source_height, &source_width, offset, whence, f) != 0){
+            if(read_IDAT_size(&source_len, &comp_height[i-1], &const_width, offset, whence, f) != 0){
                 printf("Error reading IDAT data length for file %s\n", argv[i]);
-                buf_alluncomp[i-1] = NULL;
+                buf_alldecomp[i-1] = NULL;
                 fclose(f);
                 continue;
             }
-
-            /* For decoding purpose */
-            printf("Expected decompressed data length for file %s: %u * (%u *4 + 1) = %u\n", argv[i], source_height, source_width, source_height*(source_width*4+1));
 
         /* Read IDAT data */
             /* move file pointer to the start of data part of IDAT chunck*/
@@ -59,18 +63,18 @@ int main(int argc, char *argv[])
             /* read the compressed data of IDAT chunk to buf_comp*/
             if(read_IDAT_data(&buf_comp, source_len, CHUNK_TYPE_SIZE, SEEK_CUR, f) != 0){
                 printf("Error reading IDAT data for file %s\n", argv[i]);
-                buf_alluncomp[i-1] = NULL;
+                buf_alldecomp[i-1] = NULL;
                 fclose(f);
                 continue;
             }
 
-        /* Decompress the data of IDAT chunk and store it in buf_alluncomp */
-            U64 decomp_len = (source_height) * ((source_width) * 4 + 1);
+        /* Decompress the data of IDAT chunk and store it in buf_alldecomp */
+            U64 decomp_len = (comp_height[i-1]) * ((const_width) * 4 + 1);
             U8 *decomp_dest = (U8 *)malloc(decomp_len);
             if (decomp_dest == NULL) {
                 printf("Error allocating memory for decompressed data for file %s\n", argv[i]);
                 free(buf_comp);
-                buf_alluncomp[i - 1] = NULL;
+                buf_alldecomp[i - 1] = NULL;
                 fclose(f);
                 continue;
             }
@@ -82,27 +86,79 @@ int main(int argc, char *argv[])
                 printf("Decompression failed for file %s\n", argv[i]);
                 free(buf_comp);
                 free(decomp_dest);
-                buf_alluncomp[i-1] = NULL;
+                buf_alldecomp[i-1] = NULL;
                 fclose(f);
                 continue;
             }
 
-            printf("Decompressed length for file %s: %lu\n", argv[i], decomp_len);
-
         /* stores the decompressed png in the array */
-            buf_alluncomp[i-1] = decomp_dest;
+            buf_alldecomp[i-1] = decomp_dest;
+        /* keep track of uncompressed length */
+            totalDecomp_len += decomp_len;
+            decomp_height[i-1] = decomp_len;
 
         free(buf_comp);
         fclose(f);
     }
 
+    /* for debugging purpose */
+    printf("Total decomp_len is: %lu\n", totalDecomp_len);
+
+    /* Concatenate all decompressed PNG into one buffer */
+        U8 *buf_catDecomp = malloc(totalDecomp_len);
+        if(buf_catDecomp == NULL){
+            /* Free all allocated memory */
+            for(int i = 0; i < (argc - 1); i++){
+                if(buf_alldecomp[i] != NULL){
+                    free(buf_alldecomp[i]);
+                }
+            }
+            free(buf_alldecomp);
+            return -1;
+        }
+
+        U64 offset = 0;
+        for(int i = 0; i < argc-1; i++){
+            if(buf_alldecomp[i] != NULL){
+                memcpy(buf_catDecomp + offset, buf_alldecomp[i], decomp_height[i]);
+                offset += decomp_height[i];
+            }
+        }
+
+    /* Compressed all png files into one */
+        /* total length of compressed png */
+        U64 totalcomp_len;
+        /* buffer that stores the compressed png */
+        U8 *buf_allcomp = (U8*)malloc(compressBound(totalDecomp_len));
+        if(buf_allcomp == NULL){
+            printf("Error allocating memory for buf_allcomp\n");
+            /* Free all allocated memory */
+            for(int i = 0; i < (argc - 1); i++){
+                if(buf_alldecomp[i] != NULL){
+                    free(buf_alldecomp[i]);
+                }
+            }
+            free(buf_alldecomp);
+            free(buf_catDecomp);
+            return -1;
+        }
+
+        if(mem_def(buf_allcomp, &totalcomp_len, buf_catDecomp, totalDecomp_len, Z_DEFAULT_COMPRESSION) != Z_OK){
+            printf("Error compressing png files\n");
+        }
+
+    /*  For debuggin purpose */
+    printf("Compressed length: %lu\n", totalcomp_len);
+
     /* Free all allocated memory */
     for(int i = 0; i < (argc - 1); i++){
-        if(buf_alluncomp[i] != NULL){
-            free(buf_alluncomp[i]);
+        if(buf_alldecomp[i] != NULL){
+            free(buf_alldecomp[i]);
         }
     }
-    free(buf_alluncomp);
+    free(buf_alldecomp);
+    free(buf_catDecomp);
+    free(buf_allcomp);
 
     return 0;
 }
