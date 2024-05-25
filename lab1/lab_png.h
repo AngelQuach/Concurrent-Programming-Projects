@@ -70,3 +70,5 @@ int get_png_data_IHDR(struct data_IHDR *out, FILE *fp, long offset, int whence);
 /* declare your own functions prototypes here */
 int read_IDAT_size(U64 *out, U32 *height, U32 *width, long offset, int whence, FILE *fp);
 int read_IDAT_data(U8 **out, U64 data_length, long offset, int whence, FILE *fp);
+int create_chunk(chunk_p *buf_chunk, const char *type_s, U32 width, U32 height, U8 *comp_png);
+void write_chunk(FILE *fp, chunk_p buf_chunk);
