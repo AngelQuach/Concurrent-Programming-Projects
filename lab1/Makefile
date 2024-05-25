@@ -1,52 +1,62 @@
-# Makefile, ECE252  
+# Modifed from Makefile, ECE252  
 # Yiqing Huang
 
+
 CC = gcc       # compiler
-CFLAGS = -Wall -g -std=c99 # compilation flags
+CFLAGS = -Wall -g -std=c99 -Iinclude # compilation flags
 LD = gcc       # linker
 LDFLAGS = -g   # debugging symbols in build
 LDLIBS = -lz   # link with libz
 
-# For students 
+
 # Source files for each executable
-LIB_UTIL = zutil.o crc.o
-FINDPNG_SRCS = findpng.c crc.c lab_png.c
-CATPNG_SRCS = catpng.c crc.c zutil.c lab_png.c
+FINDPNG_SRCS = findpng.c crc.c
+CATPNG_SRCS = catpng.c crc.c zutil.c
+
 
 # Object files for each executable
-FINDPNG_OBJS = $(FINDPNG_SRCS: .c=.o)
-CATPNG_OBJS = catpng.o lab_png.o $(LIB_UTIL: .c=.o)
+FINDPNG_OBJS = $(FINDPNG_SRCS:.c=.o)
+CATPNG_OBJS = $(CATPNG_SRCS:.c=.o)
+
 
 # Dependency files for each executable
-FINDPNG_DEPS = $(FINDPNG_SRCS:.c=.d)
-CATPNG_DEPS = $(CATPNG_SRCS:.c=.d)
+FINDPNG_DEPS = $(FINDPNG_SRCS:.c:.d)
+CATPNG_DEPS = $(CATPNG_SRCS:.c:.d)
+
 
 # Executable name
-FINDPNG_TARGETS = findpng
-CATPNG_TARGETS = catpng 
+FINDPNG_TARGET = findpng
+CATPNG_TARGET = catpng
+
 
 # Default targets
-all: ${FINDPNG_TARGETS} ${CATPNG_TARGETS}
+all: $(FINDPNG_TARGET) $(CATPNG_TARGET)
+
 
 # Link object files and create executables
-${FINDPNG_TARGETS}: ${FINDPNG_OBJS} 
-	$(LD) $(CFLAGS) -o $(LDFLAGS) ${FINDPNG_TARGETS} ${FINDPNG_OBJS} 
+$(FINDPNG_TARGET): $(FINDPNG_OBJS)
+	$(LD) $(LDFLAGS) -o $(FINDPNG_TARGET) $(FINDPNG_OBJS) $(LDLIBS)
 
-${CATPNG_TARGETS}: ${CATPNG_OBJS} 
-	$(LD) $(CFLAGS) -o $(LDFLAGS) ${CATPNG_TARGETS} ${CATPNG_OBJS}
 
-# Compile sources files into object files
-%.o: %.c 
-	$(CC) $(CFLAGS) -c $< 
+$(CATPNG_TARGET): $(CATPNG_OBJS)
+	$(LD) $(LDFLAGS) -o $(CATPNG_TARGET) $(CATPNG_OBJS) $(LDLIBS)
 
+
+# Compile source files into object files
+%.o: %.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+
+# Generate dependency files
 %.d: %.c
-	gcc -MM -MF $@ $<
+	$(CC) -MM -MF $@ -MT $(@:.d=.o) $<
+
 
 # Include dependency files
 -include $(FINDPNG_DEPS)
 -include $(CATPNG_DEPS)
 
+
 .PHONY: clean
 clean:
-	rm -f *.d *.o $(FINDPNG_TARGETS) $(CATPNG_TARGETS)
-
+	rm -f *.o *.d $(FINDPNG_TARGET) $(CATPNG_TARGET)
