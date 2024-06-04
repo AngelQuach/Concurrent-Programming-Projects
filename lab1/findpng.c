@@ -27,7 +27,7 @@ int is_png(U8 *buf, size_t n){
 }
 
 /* Searches the subdirectory */
-void SearchDIR(char *dir_path){
+void SearchDIR(char *dir_path, int *count){
      DIR *p_dir;
     struct dirent *p_dirent;
     char str[64];
@@ -56,7 +56,7 @@ void SearchDIR(char *dir_path){
             exit(3);
         } else if (S_ISDIR(buf.st_mode)){
             if (strcmp(p_dirent->d_name, ".") != 0 && strcmp(p_dirent->d_name, "..") != 0){
-                SearchDIR(path);
+                SearchDIR(path, count);
             }      
         } else if (S_ISREG(buf.st_mode)){
             /*check if the file is a png file*/
@@ -71,7 +71,7 @@ void SearchDIR(char *dir_path){
             U8 *header = malloc(8);
 	        size_t elementsRead = fread(header, sizeof(U8), 8, f);
 	        if(elementsRead != 8){
-		        printf("Error reading the file. Expected elements: 8. Actual elements: %ld\n", elementsRead);
+		        /*printf("Error reading the file. Expected elements: 8. Actual elements: %ld\n", elementsRead);*/
 		        fclose(f);
 		        free(header);
 		        continue;
@@ -79,6 +79,7 @@ void SearchDIR(char *dir_path){
             int png_state = is_png(header, 8);
             if(png_state == 1){
                 printf("%s\n", path);
+                *(count) = *(count) + 1;
             }
             fclose(f);
             free(header);
@@ -93,11 +94,15 @@ void SearchDIR(char *dir_path){
 }
 
 int main(int argc, char *argv[]) 
-{
+{   
+    int count = 0;
     if (argc == 1) {
          fprintf(stderr, "Usage: %s <directory name>\n", argv[0]);
          exit(1);
     }
-    SearchDIR(argv[1]);
+    SearchDIR(argv[1], &count);
+    if(count == 0){
+        printf("No PNG file found\n");
+    }
     return 0;
 }
