@@ -1,21 +1,38 @@
+#define _POSIX_C_SOURCE 200809L
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <arpa/inet.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <pthread.h>
-#include <unistd.h>
 #include <string.h>
 #include <curl/curl.h>
+#include "lab_png.h"
+#include "crc.h"
 
 #define BUF_SIZE 1048576  /* 1024*1024 = 1M */
 #define BUF_INC  524288   /* 1024*512  = 0.5M */
 #define ECE252_HEADER "X-Ece252-Fragment: "
-#define MAX_THREADS 50    /* Maximum number of threads */
+#define MAX_STRIPS 50    /* Maximum number of threads */
+#define const_width 400    /* Width of all png files */
+#define final_height 300   /* Height of the final png file */
+#define strip_height 6   /* Height of the individual strip */
+#define uncomp_size 480300  /* total size of uncompressed strips */
+#define strip_uncomp_size 9606  /* size of individual uncompressed strip */
 
 /* Create a global int to keep track of download of unique strips */
 int count = 0;
 /* Array to store the strips downloaded */
-char *p_strips[MAX_THREADS];
+char *p_strips[MAX_STRIPS];
 /* Mutex for synchronizing access to p_strips and count */
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+#define max(a, b) \
+   ({ __typeof__ (a) _a = (a); \
+       __typeof__ (b) _b = (b); \
+     _a > _b ? _a : _b; })
 
 struct thread_args {
     int thread_id;
@@ -39,7 +56,7 @@ size_t header_cb_curl(char *p_recv, size_t size, size_t nmemb, void *userdata) {
     int realsize = size * nmemb;
     struct recv_buf *p = userdata;
     
-    if (realsize > strlen(ECE252_HEADER) &&
+    if (realsize > (int)strlen(ECE252_HEADER) &&
         strncmp(p_recv, ECE252_HEADER, strlen(ECE252_HEADER)) == 0) {
         p->seq = atoi(p_recv + strlen(ECE252_HEADER));
     }
@@ -51,7 +68,7 @@ size_t write_cb_curl(char *p_recv, size_t size, size_t nmemb, void *p_userdata) 
     struct recv_buf *p = (struct recv_buf *)p_userdata;
     
     if (p->size + realsize + 1 > p->max_size) {
-        size_t new_size = p->max_size + max(BUF_INC, realsize + 1);
+        size_t new_size = p->max_size + max((size_t)BUF_INC, realsize + 1);
         char *q = realloc(p->buf, new_size);
         if (q == NULL) {
             perror("realloc");
@@ -103,14 +120,14 @@ void *do_work(void *arg) {
             /* Lock the other threads */
             pthread_mutex_lock(&mutex);
             if (p_strips[(p_out->seq) - 1] == NULL) {
-                p_strips[(p_out->seq) - 1] = p_out;
+                p_strips[(p_out->seq) - 1] = p_out->data;
                 count++;
                 /* Check if all strips are downloaded */
                 if (count == 50) {
                     pthread_mutex_unlock(&mutex);  // Unlock the mutex before exiting
                     break;  // Exit the while loop if all 50 strips are downloaded
                 }
-            } /* Else do nothing */
+            }
             pthread_mutex_unlock(&mutex);
         }
 
@@ -123,23 +140,90 @@ void *do_work(void *arg) {
     return (void *)p_out;
 }
 
-void extract_and_write_chunk(FILE *output_file, char *data, size_t size, const char *chunk_type, int write_chunk_header) {
-    size_t pos = 8; // skip PNG signature
-    while (pos < size) {
-        unsigned int length = ntohl(*(unsigned int *)(data + pos));
-        char type[5];
-        memcpy(type, data + pos + 4, 4);
-        type[4] = 0;
+/* initiate and set up the chunk of type_s */
+int create_chunk(chunk_p *buf_chunk, const char *type_s, U32 width, U32 height, U8 *comp_png){
+    /* pointer to chunk created */
+    (*buf_chunk) = malloc(sizeof(struct chunk));
+    if((*buf_chunk) == NULL) return -1;
+    
+    /* determine which chunk we are creating */
+    if(!strcmp(type_s, "IHDR")){
+        /* IHDR length and type */
+            (*buf_chunk)->length = DATA_IHDR_SIZE;
+            memcpy((*buf_chunk)->type, type_s, 4);
 
-        if (strcmp(type, chunk_type) == 0) {
-            if (write_chunk_header) {
-                fwrite(data + pos - 8, 1, length + 12, output_file);
-            } else {
-                fwrite(data + pos + 8, 1, length, output_file);
+        /* IHDR data */
+            data_IHDR_p IHDR_d = malloc(DATA_IHDR_SIZE);
+            if(IHDR_d == NULL){
+                free((*buf_chunk));
+                return -1;
             }
-        }
-        pos += length + 12;
+            memset(IHDR_d, 0, DATA_IHDR_SIZE);
+
+            IHDR_d->width = htonl(width);
+            IHDR_d->height = htonl(height);
+            IHDR_d->bit_depth = 8;
+            IHDR_d->color_type = 6;
+            IHDR_d->compression = 0;
+            IHDR_d->filter = 0;
+            IHDR_d->interlace = 0;
+            (*buf_chunk)->p_data = (void *) IHDR_d;
+    } else if(!strcmp(type_s, "IDAT")){
+        /* IDAT length and type */
+            (*buf_chunk)->length = width;
+            memcpy((*buf_chunk)->type, type_s, 4);
+
+        /* IDAT data */
+            (*buf_chunk)->p_data = comp_png;
+    } else if(!strcmp(type_s, "IEND")){
+        /* IEND length and type */
+            (*buf_chunk)->length = 0;
+            memcpy((*buf_chunk)->type, type_s, 4);
+        
+        /* IEND data */
+            (*buf_chunk)->p_data = NULL;
+    } else{
+        /* Unsupported chunk type */
+        free((*buf_chunk));
+        return -1;
     }
+
+    /* Set up chunk crc */
+        U8 *temp_buf = malloc(CHUNK_TYPE_SIZE + (*buf_chunk)->length);
+        if(temp_buf == NULL){
+            if(!strcmp(type_s, "IHDR")){
+                free((*buf_chunk)->p_data);
+            }
+            free((*buf_chunk));
+            return -1;
+        }
+        memcpy(temp_buf, (*buf_chunk)->type, CHUNK_TYPE_SIZE);
+        /* for IHDR/IDAT chunks */
+        if((*buf_chunk)->length > 0 && (*buf_chunk)->p_data != NULL){
+            memcpy(temp_buf + CHUNK_TYPE_SIZE, (*buf_chunk)->p_data, (*buf_chunk)->length);
+        }
+        (*buf_chunk)->crc = crc(temp_buf, CHUNK_TYPE_SIZE + (*buf_chunk)->length);
+        free(temp_buf);
+    
+    /* chunk set up completed */
+        return 0;
+}
+
+/* write buf_chunk to the file fp */
+void write_chunk(FILE *fp, chunk_p buf_chunk){
+    /* Write length and type */
+    U32 chunk_len = htonl(buf_chunk->length);
+    fwrite(&chunk_len, 1, CHUNK_LEN_SIZE, fp);
+    fwrite(buf_chunk->type, 1, CHUNK_TYPE_SIZE, fp);
+
+    /* Check if data exists, write data */
+    if(buf_chunk->p_data != NULL){
+        fwrite(buf_chunk->p_data, 1, buf_chunk->length, fp);
+    }
+
+    /* Write crc */
+    U32 crc_value = htonl(buf_chunk->crc);
+    fwrite(&crc_value, 1, CHUNK_CRC_SIZE, fp);
 }
 
 int main(int argc, char **argv) {
@@ -153,7 +237,7 @@ int main(int argc, char **argv) {
                 if(optarg != NULL && *optarg != '\0'){
                     num_threads = strtoul(optarg, NULL, 10);
                     if(num_threads <= 0){
-                        fprintf(stderr, "Number of threads must be between 1 and %d\n", MAX_THREADS);
+                        fprintf(stderr, "Number of threads must be at least 1\n");
                         return 1;
                     }
                 }
@@ -203,16 +287,146 @@ int main(int argc, char **argv) {
     }
 
     /* Write IHDR chunk */
+        /* Set up IHDR chunk */
+            chunk_p p_IHDR;
+            if(create_chunk(&p_IHDR, "IHDR", const_width, final_height, NULL) != 0){
+                printf("Error allocating memory for IHDR chunk for new file\n");
+                fclose(output_file);
+                free(p_tids);
+                free(in_params);
+                free(p_results);
+
+                for (int i = 0; i < MAX_STRIPS; i++) {
+                    if(p_strips[i] == NULL){
+                        free(p_strips[i]);
+                    }
+                }
+
+                return -1;
+            }
+        /* IHDR completed */
+        write_chunk(output_file, p_IHDR);
 
     /* Write IDAT chunk */
+        /* A buffer to stored the concatenated uncompressed strips */
+            U8 *total_uncomp_strip = (U8*)malloc(uncomp_size);
+        /* length of compressed strip IDAT data */
+            int strip_length;
+            memcpy(&strip_length, p_strips[0] + 25, 4);
+        /* A buffer to store individual compressed IDAT data */
+            U8 *p_comp_IDAT = (U8*)malloc(strip_length);
+
+        /* Concatenate uncompressed strips */
+        for(int i = 0; i < MAX_STRIPS; i++){
+            if(p_strips[i] != NULL){
+                /* Read IDAT data to pointer */
+                memcpy(p_comp_IDAT, p_strips[i] + 25 + 8, strip_length);
+
+                U64 copy_strip_uncomp_size = (U64)strip_uncomp_size;
+                U64 copy_strip_length = (U64)strip_length;
+                /* Decompress IDAT data and save to buffer */
+                if(mem_inf(total_uncomp_strip + i*strip_uncomp_size, &copy_strip_uncomp_size, p_comp_IDAT, copy_strip_length) != Z_OK) {
+                    printf("Decompression failed for strip %d\n", i);
+                    continue;
+                }   
+            }
+        }
+        free(p_comp_IDAT);
+
+        /* Compress the buffer and stored in buffer */
+        U8 *total_comp = (U8*)malloc(compressBound(uncomp_size));
+        if(total_comp == NULL){
+            printf("Error allocating memory for total_comp\n");
+            /* Free all allocated memory */
+            fclose(output_file);
+            free(p_tids);
+            free(in_params);
+            free(p_results);
+            free(total_uncomp_strip);
+            free(p_IHDR->p_data);
+            free(p_IHDR);
+
+            for (int i = 0; i < MAX_STRIPS; i++) {
+                if(p_strips[i] == NULL){
+                    free(p_strips[i]);
+                }
+            }
+
+            return -1;
+        }
+        U64 copy_comp_size = (U64)compressBound(uncomp_size);
+        U64 copy_uncomp_size = (U64)uncomp_size;
+        if(mem_def(total_comp, &copy_comp_size, total_uncomp_strip, copy_uncomp_size, Z_DEFAULT_COMPRESSION) != Z_OK){
+            printf("Error compressing png files\n");
+        }
+
+        /* Create the IDAT chunk and write to file */
+            chunk_p p_IDAT;
+            if(create_chunk(&p_IDAT, "IDAT", const_width, final_height, total_comp) != 0){
+                printf("Error allocating memory for IDAT chunk for new file\n");
+                fclose(output_file);
+                free(p_tids);
+                free(in_params);
+                free(p_results);
+                free(total_uncomp_strip);
+                free(p_IHDR->p_data);
+                free(p_IHDR);
+                free(total_comp);
+
+                for (int i = 0; i < MAX_STRIPS; i++) {
+                    if(p_strips[i] == NULL){
+                        free(p_strips[i]);
+                    }
+                }
+
+                return -1;
+            }
+        /* IDAT completed */
+        write_chunk(output_file, p_IDAT);
+
 
     /* Write IEND chunk */
+        /* Set up IEND chunk */
+            chunk_p p_IEND;
+            if(create_chunk(&p_IEND, "IEND", 0, 0, NULL) != 0){
+                printf("Error allocating memory for IEND chunk for new file\n");
+                fclose(output_file);
+                free(p_tids);
+                free(in_params);
+                free(p_results);
+                free(total_uncomp_strip);
+                free(p_IHDR->p_data);
+                free(p_IHDR);
+                free(total_comp);
+                free(p_IDAT);
+
+                for (int i = 0; i < MAX_STRIPS; i++) {
+                    if(p_strips[i] == NULL){
+                        free(p_strips[i]);
+                    }
+                }
+
+                return -1;
+            }
+        /* IEND completed */
+        write_chunk(output_file, p_IEND);
 
     fclose(output_file);
-
     free(p_tids);
     free(in_params);
     free(p_results);
+    free(total_uncomp_strip);
+    free(p_IHDR->p_data);
+    free(p_IHDR);
+    free(total_comp);
+    free(p_IDAT);
+    free(p_IEND);
+
+    for (int i = 0; i < MAX_STRIPS; i++) {
+        if(p_strips[i] == NULL){
+            free(p_strips[i]);
+        }
+    }
 
     return 0;
 }
