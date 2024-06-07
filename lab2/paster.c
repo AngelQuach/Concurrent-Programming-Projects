@@ -25,7 +25,7 @@
 /* Create a global int to keep track of download of unique strips */
 int count = 0;
 /* Array to store the strips downloaded */
-char *p_strips[MAX_STRIPS];
+struct thread_ret *p_strips[MAX_STRIPS];
 /* Mutex for synchronizing access to p_strips and count */
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 
@@ -119,8 +119,8 @@ void *do_work(void *arg) {
             /* If this strips has not been downloaded, download it */
             /* Lock the other threads */
             pthread_mutex_lock(&mutex);
-            if (p_strips[(p_out->seq) - 1] == NULL) {
-                p_strips[(p_out->seq) - 1] = p_out->data;
+            if (p_strips[(p_out->seq)] == NULL) {
+                p_strips[(p_out->seq)] = p_out;
                 count++;
                 /* Check if all strips are downloaded */
                 if (count == 50) {
@@ -256,6 +256,12 @@ int main(int argc, char **argv) {
         }
     }
 
+    /* Initialize p_strips to NULL */
+    for (int i = 0; i < MAX_STRIPS; i++) {
+        p_strips[i] = NULL;
+    }
+
+
     pthread_t *p_tids = malloc(sizeof(pthread_t) * num_threads);
     struct thread_args *in_params = malloc(sizeof(struct thread_args) * num_threads);
     struct thread_ret **p_results = malloc(sizeof(struct thread_ret *) * num_threads);
@@ -279,7 +285,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < num_threads; i++) {
         pthread_join(p_tids[i], (void **)&p_results[i]);
 
-        if(p_strips[p_results[i]->seq - 1] != p_results[i]->data){
+        if(p_results[i] != NULL && p_results[i]->data != NULL && p_strips[p_results[i]->seq]->data != p_results[i]->data){
             free(p_results[i]->data);
             free(p_results[i]);
             p_results[i] = NULL;
@@ -297,7 +303,10 @@ int main(int argc, char **argv) {
                 free(p_results);
 
                 for (int i = 0; i < MAX_STRIPS; i++) {
-                    if(p_strips[i] == NULL){
+                    if(p_strips[i] != NULL){
+                        if(p_strips[i]->data != NULL){
+                            free(p_strips[i]->data);
+                        }
                         free(p_strips[i]);
                     }
                 }
@@ -310,25 +319,92 @@ int main(int argc, char **argv) {
     /* Write IDAT chunk */
         /* A buffer to stored the concatenated uncompressed strips */
             U8 *total_uncomp_strip = (U8*)malloc(uncomp_size);
+            if(total_uncomp_strip == NULL){
+                printf("Error allocating memory for total_uncomp_strip\n");
+                fclose(output_file);
+                free(p_tids);
+                free(in_params);
+                free(p_results);
+
+                for (int i = 0; i < MAX_STRIPS; i++) {
+                    if(p_strips[i] != NULL){
+                        if(p_strips[i]->data != NULL){
+                            free(p_strips[i]->data);
+                        }
+                        free(p_strips[i]);
+                    }
+                }
+
+                return -1;
+            }
         /* length of compressed strip IDAT data */
             int strip_length;
-            memcpy(&strip_length, p_strips[0] + 25, 4);
+            if(p_strips[0] == NULL){
+                perror("p_strips[0] is null");
+                fclose(output_file);
+                free(p_tids);
+                free(in_params);
+                free(p_results);
+                free(total_uncomp_strip);
+
+                for (int i = 0; i < MAX_STRIPS; i++) {
+                    if(p_strips[i] != NULL){
+                        if(p_strips[i]->data != NULL){
+                            free(p_strips[i]->data);
+                        }
+                        free(p_strips[i]);
+                    }
+                }
+
+                return -1;
+            }
+            memcpy(&strip_length, p_strips[0]->data + 25 + 8, 4);
+            strip_length = ntohl(strip_length);
         /* A buffer to store individual compressed IDAT data */
             U8 *p_comp_IDAT = (U8*)malloc(strip_length);
+            if(p_comp_IDAT == NULL){
+                printf("Error allocating memory for p_comp_IDAT\n");
+                fclose(output_file);
+                free(p_tids);
+                free(in_params);
+                free(p_results);
+                free(total_uncomp_strip);
+
+                for (int i = 0; i < MAX_STRIPS; i++) {
+                    if(p_strips[i] != NULL){
+                        if(p_strips[i]->data != NULL){
+                            free(p_strips[i]->data);
+                        }
+                        free(p_strips[i]);
+                    }
+                }
+
+                return -1;
+            }
 
         /* Concatenate uncompressed strips */
         for(int i = 0; i < MAX_STRIPS; i++){
             if(p_strips[i] != NULL){
                 /* Read IDAT data to pointer */
-                memcpy(p_comp_IDAT, p_strips[i] + 25 + 8, strip_length);
+                memcpy(p_comp_IDAT, p_strips[i]->data + 25 + 8 + 8, strip_length);
 
                 U64 copy_strip_uncomp_size = (U64)strip_uncomp_size;
                 U64 copy_strip_length = (U64)strip_length;
+                U8 *buf_strip_uncomp = malloc(copy_strip_uncomp_size);
+                if(buf_strip_uncomp == NULL){
+                    printf("Unable to allocate memory for uncompressed stip buffer %d\n", i);
+                    continue;
+                }
                 /* Decompress IDAT data and save to buffer */
-                if(mem_inf(total_uncomp_strip + i*strip_uncomp_size, &copy_strip_uncomp_size, p_comp_IDAT, copy_strip_length) != Z_OK) {
+                if(mem_inf(buf_strip_uncomp, &copy_strip_uncomp_size, p_comp_IDAT, copy_strip_length) != Z_OK) {
                     printf("Decompression failed for strip %d\n", i);
                     continue;
-                }   
+                }
+                memcpy(total_uncomp_strip + i*strip_uncomp_size, buf_strip_uncomp, copy_strip_uncomp_size);
+                free(buf_strip_uncomp);   
+            } else{
+                printf("Cannot access strip %d\n", i);
+                continue;
             }
         }
         free(p_comp_IDAT);
@@ -347,10 +423,13 @@ int main(int argc, char **argv) {
             free(p_IHDR);
 
             for (int i = 0; i < MAX_STRIPS; i++) {
-                if(p_strips[i] == NULL){
-                    free(p_strips[i]);
+                    if(p_strips[i] != NULL){
+                        if(p_strips[i]->data != NULL){
+                            free(p_strips[i]->data);
+                        }
+                        free(p_strips[i]);
+                    }
                 }
-            }
 
             return -1;
         }
@@ -374,7 +453,10 @@ int main(int argc, char **argv) {
                 free(total_comp);
 
                 for (int i = 0; i < MAX_STRIPS; i++) {
-                    if(p_strips[i] == NULL){
+                    if(p_strips[i] != NULL){
+                        if(p_strips[i]->data != NULL){
+                            free(p_strips[i]->data);
+                        }
                         free(p_strips[i]);
                     }
                 }
@@ -401,7 +483,10 @@ int main(int argc, char **argv) {
                 free(p_IDAT);
 
                 for (int i = 0; i < MAX_STRIPS; i++) {
-                    if(p_strips[i] == NULL){
+                    if(p_strips[i] != NULL){
+                        if(p_strips[i]->data != NULL){
+                            free(p_strips[i]->data);
+                        }
                         free(p_strips[i]);
                     }
                 }
@@ -423,7 +508,10 @@ int main(int argc, char **argv) {
     free(p_IEND);
 
     for (int i = 0; i < MAX_STRIPS; i++) {
-        if(p_strips[i] == NULL){
+        if(p_strips[i] != NULL){
+            if(p_strips[i]->data != NULL){
+                free(p_strips[i]->data);
+            }
             free(p_strips[i]);
         }
     }
