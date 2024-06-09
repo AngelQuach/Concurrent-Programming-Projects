@@ -152,6 +152,10 @@ void *do_work(void *arg) {
                 pthread_mutex_unlock(&mutex);
             }
         }
+        if(recv_buf.seq == -1){
+            free(recv_buf.buf);
+            p_out->data = NULL;
+        }
 
         /* After all strips have been downloaded, clean curl handle */
         curl_easy_cleanup(curl_handle);
