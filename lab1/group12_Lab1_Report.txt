@@ -8,15 +8,14 @@ Any *.out renamed to *
 
 >> ./findpng images/empty
 Got: 
-Error reading the file. Expected elements: 8. Actual elements: 0
+No PNG file found
 Expected: 
 No PNG file found
-incorrect -5
+correct +5
 
 >> ./findpng .
 Got: 
 ./double_uweng.png
-Error reading the file. Expected elements: 8. Actual elements: 0
 ./images/cropped/pic_cropped_0.png
 ./images/cropped/pic_cropped_1.png
 ./images/cropped/pic_cropped_2.png
@@ -93,10 +92,9 @@ Expected:
 ./red-green-16x32.png
 ./uweng.png
 ./WEEF_1.png
-incorrect -10
+correct +10
 >> ./findpng images
 Got: 
-Error reading the file. Expected elements: 8. Actual elements: 0
 images/cropped/pic_cropped_0.png
 images/cropped/pic_cropped_1.png
 images/cropped/pic_cropped_2.png
@@ -166,7 +164,7 @@ images/uweng_cropped/uweng_cropped_5.png
 images/uweng_cropped/uweng_cropped_6.png
 images/uweng.png
 images/WEEF_1.png
-incorrect -10
+correct +10
 
 >> ./findpng images/cropped
 Got: 
@@ -236,10 +234,10 @@ No executable found +1
 
 ########### Score ###########
 Makefile score: 5/5
-findpng score: 10/35
+findpng score: 35/35
 catpng score: 50/50
 file organization: 10/10
-Total lab 1 score:  75/100
+Total lab 1 score:  100/100
 
 ########### Additional Comments ###########
-#
+EK: lab1 remarked
