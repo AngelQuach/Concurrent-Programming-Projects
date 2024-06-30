@@ -11,6 +11,8 @@
 #include <time.h>
 #include <sys/time.h>
 
-typedef struct Imagebuf;
-typedef struct CircularQueue;
-void init_image_queue(CircularQueue *image_queue, int buffer_size);
+#define uncomp_strip 9606  /* size of individual uncompressed strip */
+#define uncomp_img 480300  /* total size of uncompressed strips */
+
+typedef struct recv_buf;
+recv_buf* init_image_buf();
