@@ -1,49 +1,26 @@
-#include "imagebuf.h"
+#include "recv_buf.h"
 
 /* Buffer for storing image segments */
 typedef struct{
-    char *data;
+    char *buf;
+    size_t size;
+    size_t max_size;
     int seq;
-    Imagebuf *next;
-} Imagebuf;
+    recv_buf *next;
+} recv_buf;
 
-typedef struct{
-    Imagebuf *front;
-    Imagebuf *rear;
-    int capacity;
-    int size;
-}CircularQueue;
-
-/* Create a node */
-Imagebuf* create_imagebuf(const char *data, int seq){
+/* Set up the Imagebuf */
+recv_buf* init_image_buf(){
     /* Initialize the node */
-    Imagebuf *new_buf = (Imagebuf*)malloc(sizeof(Imagebuf));
+    recv_buf *new_buf = (recv_buf*)malloc(sizeof(recv_buf));
     if(new_buf == NULL){
         perror("Failed to allocate memory for new imagebuf");
         return NULL;
     }
-    new_buf->data = (char*)malloc(sizeof(data));
-    if(new_buf->data == NULL){
-        perror("Failed to allocate memory for image data");
-        free(new_buf);
-        return NULL;
-    }
-    memcpy(new_buf->data, data, sizeof(data));
-    new_buf->seq = seq;
+    new_buf->buf = NULL;
+    new_buf->size = -1;
+    new_buf->max_size = compressBound(uncomp_strip);
+    new_buf->seq = -1;
     new_buf->next = NULL;
     return new_buf;
-}
-
-/* Set up the image queue */
-void init_image_queue(CircularQueue *image_queue, int buffer_size){
-    /* Allocate memory for the queue */
-    image_queue = (CircularQueue*)malloc(sizeof(CircularQueue));
-    if(image_queue == NULL){
-        perror("Failed to allocate memory for new queue");
-        exit(EXIT_FAILURE);
-    }
-    image_queue->front = NULL;
-    image_queue->rear = NULL;
-    image_queue->capacity = buffer_size;
-    image_queue->size = 0;
 }
