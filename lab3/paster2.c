@@ -32,7 +32,7 @@ int create_chunk(chunk_p *buf_chunk, const char *type_s, U32 width, U32 height, 
 void write_chunk(FILE *fp, chunk_p buf_chunk);
 
 /* The shm between producers and consumers */
-CircularQueue *image_queue;
+CircularQueue image_queue;
 
 int main(int argc, char **argv) {
     /* Set parameters based on input */
@@ -44,8 +44,7 @@ int main(int argc, char **argv) {
     /* Read input */
         /* buf size */
         int B = (int)argv[1];
-        /* set up buffer */
-        init_image_queue(image_queue, B);
+        init_image_queue(&image_queue, B);      /* set up buffer */
         /* num of producers */
         int P = (int)argv[2];
         /* num of consumers */
@@ -57,7 +56,6 @@ int main(int argc, char **argv) {
         /* Start and end time */
         double times[2];
         struct timeval tv;
-        /* Set up url for connection */
 
     /* Record starting time */
     if(gettimeofday(&tv, NULL) != 0){
@@ -66,5 +64,17 @@ int main(int argc, char **argv) {
     }
     time[0] = (tv.tv_sec) + tv.tv_usec/1000000.;
 
-    /*  */
+    /* Create parent and child threads */
+    /* --- TO BE IMPLEMENTED --- */
+
+    /* End time after all.png is generated */
+    if(gettimeofday(&tv, NULL) != 0){
+        perror("gettimeofday");
+        //DO SOME CLEANUP HERE
+        abort();
+    }
+    time[1] = (tv.tv_sec) + tv.tv_usec/1000000.;
+    
+    /* Print the measured time */
+    printf("%s execution time: %.6lf seconds\n", argv[0], times[1]-times[0]);
 }
