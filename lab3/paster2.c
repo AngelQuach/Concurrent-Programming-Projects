@@ -27,10 +27,6 @@
 #define uncomp_size 480300  /* total size of uncompressed strips */
 #define strip_uncomp_size 9606  /* size of individual uncompressed strip */
 
-/* Functions for constructing the final image */
-int create_chunk(chunk_p *buf_chunk, const char *type_s, U32 width, U32 height, U8 *comp_png);
-void write_chunk(FILE *fp, chunk_p buf_chunk);
-
 /* The shm between producers and consumers */
 CircularQueue image_queue;
 
@@ -77,4 +73,6 @@ int main(int argc, char **argv) {
     
     /* Print the measured time */
     printf("%s execution time: %.6lf seconds\n", argv[0], times[1]-times[0]);
+
+    return 0;
 }
