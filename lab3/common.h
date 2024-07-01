@@ -37,5 +37,6 @@ void init_image_queue(CircularQueue *image_queue, int buffer_size);
 void cleanup_image_queue(CircularQueue *image_queue);
 
 void producer_process(CircularQueue *queue, int machine_num, int img_num);
+void *comsumer(void *shm, void *arg);
 
 #endif
