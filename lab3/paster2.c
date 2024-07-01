@@ -37,11 +37,11 @@ int main(int argc, char **argv) {
         }
 
     /* Read input */
-        int B = (int)argv[1];           /* buf size */
-        int P = (int)argv[2];           /* num of producers */
-        int C = (int)argv[3];           /* num of consumers */
-        int X = (int)argv[4];           /* milisec of consumer sleep */
-        int N = (int)argv[5];           /* image num */
+        int B = *(int*)argv[1];           /* buf size */
+        int P = *(int*)argv[2];           /* num of producers */
+        int C = *(int*)argv[3];           /* num of consumers */
+        int X = *(int*)argv[4];           /* milisec of consumer sleep */
+        int N = *(int*)argv[5];           /* image num */
 
     /* Declare variables */
         /* Start and end time */
@@ -65,7 +65,7 @@ int main(int argc, char **argv) {
             exit(1);
         }
         /* Initialize circular queue in shared memory */  
-        init_image_queue(&image_queue, B);
+        init_image_queue(image_queue, B);
 
     /* Record starting time */
         if(gettimeofday(&tv, NULL) != 0){
@@ -128,7 +128,7 @@ int main(int argc, char **argv) {
             }
             U64 copy_comp_size = (U64)compressBound(uncomp_size);
             U64 copy_uncomp_size = (U64)uncomp_size;
-            if(mem_def(total_comp, &copy_comp_size, image_queue->uncomp_image, copy_uncomp_size, Z_DEFAULT_COMPRESSION) != Z_OK){
+            if(mem_def(total_comp, &copy_comp_size, (U8*)image_queue->uncomp_image, copy_uncomp_size, Z_DEFAULT_COMPRESSION) != Z_OK){
                 printf("Error compressing png files\n");
             }
 
