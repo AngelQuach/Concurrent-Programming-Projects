@@ -106,6 +106,7 @@ int main(int argc, char **argv) {
                 cpids[P + i] = pid;
             } else{               /* child proc */
                 /* Do consumer tasks */
+                comsumer_process(image_queue, X );
                 /* Cleanup needed */
                 exit(0);
             }
@@ -118,7 +119,6 @@ int main(int argc, char **argv) {
                 waitpid(cpids[i], NULL, 0);
             }
             /* --- TO BE IMPLEMENTED --- */
-                comsumer_process(image_queue, X );
             /* Compress image and build the file */
         }
 
