@@ -24,8 +24,7 @@ typedef struct{
     char *uncomp_image;
     size_t max_size;
     size_t size;
-    recv_buf *front;
-    recv_buf *rear;
+    recv_buf *buf;
     int capacity;
     int num;
 
