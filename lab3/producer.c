@@ -1,48 +1,7 @@
-#include "common.h"
 #include <curl/curl.h>
+#include "common.h"
 
-typedef struct{
-    int thread_id;
-    char url[256];
-}thread_args;
-
-/* Set up the image queue */
-void init_image_queue(CircularQueue *image_queue, int buffer_size){
-    /* Allocate memory for the queue */
-    image_queue = (CircularQueue*)malloc(sizeof(CircularQueue));
-    if(image_queue == NULL){
-        perror("Failed to allocate memory for new queue");
-        exit(EXIT_FAILURE);
-    }
-    size_t max_size = sizeof(char)*compressBound(uncomp_img);
-    size_t size = 0;
-    image_queue->front = NULL;
-    image_queue->rear = NULL;
-    image_queue->capacity = buffer_size;
-    image_queue->num = 0;
-}
-
-/* Cleanup the image queue */
-void cleanup_image_queue(CircularQueue *image_queue){
-    if(image_queue == NULL){
-        return;
-    }
-
-    /* Deallocate all recv_buf */
-    while(image_queue->front != image_queue->rear){
-        recv_buf *temp_buf = image_queue->front;
-        image_queue->front = image_queue->front->next;
-        free(temp_buf);
-        image_queue->num--;
-    }
-    if(image_queue->num != 0){
-        perror("Error when cleaning recv_buf");
-        exit(EXIT_FAILURE);
-    }
-
-    free(image_queue);
-    return;
-}
+#define ECE252_HEADER "X-Ece252-Fragment: "
 
 /* The below codes are from lab 3 starter code */
 /**
@@ -99,9 +58,7 @@ size_t write_cb_curl(char *p_recv, size_t size, size_t nmemb, void *p_userdata)
 }
 
 /* The below code is modified from lab 2 paster.c */
-void *producer_thread(void *shm, void* arg) {
-    CircularQueue *shm = (CircularQueue *)shm;
-    struct thread_args *p_in = arg;
+void producer_process(CircularQueue *queue, int machine_num, int img_num) {
     CURL *curl_handle;
     CURLcode res;
 
@@ -117,25 +74,45 @@ void *producer_thread(void *shm, void* arg) {
             exit(EXIT_FAILURE);
         }
 
-        curl_easy_setopt(curl_handle, CURLOPT_URL, p_in->url);
         curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, write_cb_curl);
         curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, img);
         curl_easy_setopt(curl_handle, CURLOPT_HEADERFUNCTION, header_cb_curl);
         curl_easy_setopt(curl_handle, CURLOPT_HEADERDATA, img);
         curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "libcurl-agent/1.0");
 
-        while(shm->num < MAX_STRIPS){
+        /* Check if all strips are downloaded already */
+        while(1){
+            /* Set up url to access */
+            sem_wait(&queue->access_sem);
+                if(last_seq >= MAX_STRIPS){
+                    sem_post(&queue->access_sem);
+                    break;
+                }
+                char url[256];
+                snprintf(url, sizeof(url), "http://ece252-%d.uwaterloo.ca:2530/image?img=%d&part=%d", machine_num, img_num, last_seq);
+                last_seq++;
+            sem_post(&queue->access_sem);
+            curl_easy_setopt(curl_handle, CURLOPT_URL, url);
+
+            /* Request strip */
             res = curl_easy_perform(curl_handle);
             if (res != CURLE_OK) {
                 fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
             }
 
-            /* --- Need to implement semaphore here --- */
+            /* Check if the array is full */
+            sem_wait(&queue->empty);
+            /* Check if another producer process is in critical section */
+            sem_wait(&prod_sem);
 
             /* If this strips has not been downloaded, download it */
-            if (img->seq >= 0 && is_done[img->seq] == 0) {
-                shm->enqueue(img);
-            }else{
+            if (img->seq >= 0 && last_seq <= MAX_STRIPS) {
+                /* Add the provided buffer to the array */
+                queue->buf[queue->in] = img;
+                /* Increment count of recv_buf in the array */
+                queue->num++;
+                queue->in = (queue->in + 1)%(queue->capacity);
+            } else {
                 if(img->buf != NULL){
                     free(img->buf);
                 }
@@ -143,17 +120,17 @@ void *producer_thread(void *shm, void* arg) {
                 img = NULL;
             }
 
-            /* --- Need to implement semaphore here --- */
+            /* Decrement full */
+            sem_post(&queue->full);
+            /* Exit critical section */
+            sem_post(&prod_sem);
         }
 
         /* After all strips have been downloaded, clean curl handle */
         curl_easy_cleanup(curl_handle);
         curl_global_cleanup();
-
-        return (void *)img;
+    } else {
+        /* In case curl_easy_init() failed */
+        curl_global_cleanup();
     }
-    /* In case curl_easy_init() failed */
-    curl_global_cleanup();
-    
-    return NULL;
 }
