@@ -6,18 +6,16 @@
 #include "common.h"
 #include "recv_buf.h"
 
-
-
 recv_buf *segment = NULL;
 int counter = 0;
 
 
-void *comsumer(void *shm, void *arg){
+void comsumer_process(void *shm, int arg){
     CircularQueue *queue = (CircularQueue *)shm;
-     int X = *((int *)arg); // Consumer sleep time in milliseconds
+     int X = arg; // Consumer sleep time in milliseconds
      while (1) {
         sem_wait(&queue->full);
-        sem_wait(&cons_sem);
+        sem_wait(&queue->cons_sem);
 
         if(queue->num > 0){
             /*retrieve the item from the buffer at the position queue->out*/
@@ -34,7 +32,7 @@ void *comsumer(void *shm, void *arg){
 
             /* Read IDAT data to pointer*/
             unsigned char *p_comp_IDAT = (unsigned char *)malloc(segment->size);
-            memcpy(p_comp_IDAT, segment->data + 25 + 8 + 8, segment->size);
+            memcpy(p_comp_IDAT, segment->buf + 25 + 8 + 8, segment->size);
 
             /* uncompressed size of individual strip */
             size_t copy_strip_uncomp_size = 9606;
@@ -42,7 +40,7 @@ void *comsumer(void *shm, void *arg){
             char *buf_strip_uncomp = malloc(sizeof(char)*copy_strip_uncomp_size);
     
             /*Decompress IDAT data and save to buffer*/
-            if(meminf(buf_strip_uncomp, &copy_strip_uncomp_size, p_comp_IDAT, segment->size)){
+            if(mem_inf((U8*)buf_strip_uncomp, (U64*)&copy_strip_uncomp_size, (U8*)p_comp_IDAT, (U64)segment->size)){
                     printf("Decompression failed for segment %d", segment->seq);
                     free(p_comp_IDAT);
                     free(buf_strip_uncomp);
@@ -53,21 +51,20 @@ void *comsumer(void *shm, void *arg){
             size_t offset = segment->seq * copy_strip_uncomp_size;
             memcpy(queue->uncomp_image + offset, buf_strip_uncomp, copy_strip_uncomp_size );
 
-            sem_post(&cons_sem);
+            sem_post(&queue->cons_sem);
             sem_post(&queue->empty); /*signal that there's an empty slot*/
 
             /*free the allocated memory*/
             free(p_comp_IDAT);
             free(buf_strip_uncomp);
-            free(segment->data);
+            free(segment->buf);
 
             if(counter == 50){
                 break;
             }
         }else{
-            sem_post(&cons_sem);
+            sem_post(&queue->cons_sem);
             sem_post(&queue->full);
         }
      }
 }
-
