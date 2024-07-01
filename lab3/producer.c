@@ -84,13 +84,13 @@ void producer_process(CircularQueue *queue, int machine_num, int img_num) {
         while(1){
             /* Set up url to access */
             sem_wait(&queue->access_sem);
-                if(last_seq >= MAX_STRIPS){
+                if(queue->last_seq >= MAX_STRIPS){
                     sem_post(&queue->access_sem);
                     break;
                 }
                 char url[256];
-                snprintf(url, sizeof(url), "http://ece252-%d.uwaterloo.ca:2530/image?img=%d&part=%d", machine_num, img_num, last_seq);
-                last_seq++;
+                snprintf(url, sizeof(url), "http://ece252-%d.uwaterloo.ca:2530/image?img=%d&part=%d", machine_num, img_num, queue->last_seq);
+                queue->last_seq++;
             sem_post(&queue->access_sem);
             curl_easy_setopt(curl_handle, CURLOPT_URL, url);
 
@@ -103,10 +103,10 @@ void producer_process(CircularQueue *queue, int machine_num, int img_num) {
             /* Check if the array is full */
             sem_wait(&queue->empty);
             /* Check if another producer process is in critical section */
-            sem_wait(&prod_sem);
+            sem_wait(&queue->prod_sem);
 
             /* If this strips has not been downloaded, download it */
-            if (img->seq >= 0 && last_seq <= MAX_STRIPS) {
+            if (img->seq >= 0 && queue->last_seq <= MAX_STRIPS) {
                 /* Add the provided buffer to the array */
                 queue->buf[queue->in] = img;
                 /* Increment count of recv_buf in the array */
@@ -123,7 +123,7 @@ void producer_process(CircularQueue *queue, int machine_num, int img_num) {
             /* Decrement full */
             sem_post(&queue->full);
             /* Exit critical section */
-            sem_post(&prod_sem);
+            sem_post(&queue->prod_sem);
         }
 
         /* After all strips have been downloaded, clean curl handle */
