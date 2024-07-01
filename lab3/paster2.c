@@ -8,14 +8,15 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
-#include <curl/curl.h>
 #include <stdarg.h>
 #include <sys/types.h>
 #include <time.h>
 #include <sys/time.h>
+#include <sys/wait.h>
+#include <semaphore.h>
 #include "lab_png.h"
 #include "crc.h"
-#include "imagebuf.h"
+#include "common.h"
 
 #define BUF_SIZE 1048576  /* 1024*1024 = 1M */
 #define BUF_INC  524288   /* 1024*512  = 0.5M */
@@ -27,52 +28,112 @@
 #define uncomp_size 480300  /* total size of uncompressed strips */
 #define strip_uncomp_size 9606  /* size of individual uncompressed strip */
 
-/* The shm between producers and consumers */
-CircularQueue image_queue;
-
 int main(int argc, char **argv) {
     /* Set parameters based on input */
-    if(argc != 6){
-        fprintf(stderr, "Usage: %s <B> <P> <C> <X> <N>\n", argv[0]);
-        return 0;
-    }
+        if(argc != 6){
+            fprintf(stderr, "Usage: %s <B> <P> <C> <X> <N>\n", argv[0]);
+            return 0;
+        }
 
     /* Read input */
-        /* buf size */
-        int B = (int)argv[1];
-        init_image_queue(&image_queue, B);      /* set up buffer */
-        /* num of producers */
-        int P = (int)argv[2];
-        /* num of consumers */
-        int C = (int)argv[3];
-        /* milisec of consumer sleep */
-        int X = (int)argv[4];
-        /* image num */
-        int N = (int)argv[5];
+        int B = (int)argv[1];           /* buf size */
+        int P = (int)argv[2];           /* num of producers */
+        int C = (int)argv[3];           /* num of consumers */
+        int X = (int)argv[4];           /* milisec of consumer sleep */
+        int N = (int)argv[5];           /* image num */
+
+    /* Declare variables */
         /* Start and end time */
         double times[2];
         struct timeval tv;
 
-    /* Record starting time */
-    if(gettimeofday(&tv, NULL) != 0){
-        perror("gettimeofday");
-        abort();
-    }
-    time[0] = (tv.tv_sec) + tv.tv_usec/1000000.;
+    /* Declare shm */
+        /* Create shared memory segment */
+        CircularQueue *image_queue;
+        int shm_size = sizeof(CircularQueue);
+        int shm_id = shmget(IPC_PRIVATE, shm_size, IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
+        if(shm_id == -1) {
+            perror("shmget");
+            abort();
+        }
 
-    /* Create parent and child threads */
-    /* --- TO BE IMPLEMENTED --- */
+        /* Attach shared memory segment */
+        image_queue = (CircularQueue*)shmat(shm_id, NULL, 0);
+        if(image_queue == (void *)-1){
+            perror("shmat");
+            exit(1);
+        }
+        /* Initialize circular queue in shared memory */  
+        init_image_queue(&image_queue, B);
+
+    /* Record starting time */
+        if(gettimeofday(&tv, NULL) != 0){
+            perror("gettimeofday");
+            abort();
+        }
+        times[0] = (tv.tv_sec) + tv.tv_usec/1000000.;
+
+    /* The following code is modified from starter code forkN.c */
+        pid_t pid = 0;
+        pid_t cpids[P + C];
+        /* Create producer processes */
+        for (int i = 0; i < P; i++) {
+            pid = fork();
+
+            if (pid < 0){        /* Error handling */
+                perror("fork");
+                abort();
+            } 
+        
+            if (pid > 0) {        /* parent proc */
+                cpids[i] = pid;
+            } else{               /* child proc */
+                producer_process(image_queue, (1 + (i%3)), N);
+                exit(0);
+            } 
+        }
+
+    /* Create consumer processes */
+        for (int i = 0; i < C; i++) {
+            pid = fork();
+
+            if (pid < 0){        /* Error handling */
+                perror("fork");
+                abort();
+            } 
+        
+            if (pid > 0) {        /* parent proc */
+                cpids[P + i] = pid;
+            } else{               /* child proc */
+                /* Do consumer tasks */
+                /* Cleanup needed */
+                exit(0);
+            }
+        }
+    
+    /* parent process */
+        if(pid > 0){
+            /* Wait for all children to terminate */
+            for(int i = P; i < (P + C); i++){
+                waitpid(cpids[i], NULL, 0);
+            }
+            /* --- TO BE IMPLEMENTED --- */
+            /* Compress image and build the file */
+        }
+
+    /* Cleanup all dynamic memory */
+        /* Deattach shm */
+        
 
     /* End time after all.png is generated */
-    if(gettimeofday(&tv, NULL) != 0){
-        perror("gettimeofday");
-        //DO SOME CLEANUP HERE
-        abort();
-    }
-    time[1] = (tv.tv_sec) + tv.tv_usec/1000000.;
+        if(gettimeofday(&tv, NULL) != 0){
+            perror("gettimeofday");
+            abort();
+        }
+        times[1] = (tv.tv_sec) + tv.tv_usec/1000000.;
     
     /* Print the measured time */
-    printf("%s execution time: %.6lf seconds\n", argv[0], times[1]-times[0]);
+        printf("%s execution time: %.6lf seconds\n", argv[0], times[1]-times[0]);
 
     return 0;
 }
