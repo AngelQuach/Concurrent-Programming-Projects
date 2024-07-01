@@ -15,6 +15,7 @@
 #include <sys/wait.h>
 #include <semaphore.h>
 #include "lab_png.h"
+#include "zutil.h"
 #include "crc.h"
 #include "common.h"
 
@@ -88,6 +89,7 @@ int main(int argc, char **argv) {
             if (pid > 0) {        /* parent proc */
                 cpids[i] = pid;
             } else{               /* child proc */
+                /* Do producer tasks */
                 producer_process(image_queue, (1 + (i%3)), N);
                 exit(0);
             } 
@@ -106,8 +108,7 @@ int main(int argc, char **argv) {
                 cpids[P + i] = pid;
             } else{               /* child proc */
                 /* Do consumer tasks */
-                comsumer_process(image_queue, X );
-                /* Cleanup needed */
+                comsumer_process(image_queue, X);
                 exit(0);
             }
         }
@@ -115,16 +116,69 @@ int main(int argc, char **argv) {
     /* parent process */
         if(pid > 0){
             /* Wait for all children to terminate */
-            for(int i = P; i < (P + C); i++){
+            for(int i = 0; i < (P + C); i++){
                 waitpid(cpids[i], NULL, 0);
             }
-            /* --- TO BE IMPLEMENTED --- */
-            /* Compress image and build the file */
-        }
 
-    /* Cleanup all dynamic memory */
-        /* Deattach shm */
-        
+            /* Compress image and build the file */
+            U8 *total_comp = (U8*)malloc(sizeof(char)*compressBound(uncomp_size));
+            if(total_comp == NULL){
+                perror("Error allocating memory for total_comp");
+                abort();
+            }
+            U64 copy_comp_size = (U64)compressBound(uncomp_size);
+            U64 copy_uncomp_size = (U64)uncomp_size;
+            if(mem_def(total_comp, &copy_comp_size, image_queue->uncomp_image, copy_uncomp_size, Z_DEFAULT_COMPRESSION) != Z_OK){
+                printf("Error compressing png files\n");
+            }
+
+            /* Write the image into the file */
+                FILE *output_file = fopen("all.png", "wb");
+                if (!output_file) {
+                    perror("fopen");
+                    abort();
+                }
+
+                /* Write signature */
+                unsigned char png_signature[8] = { 137, 80, 78, 71, 13, 10, 26, 10 };
+                fwrite(png_signature, 1, sizeof(png_signature), output_file);
+
+                /* Write IHDR chunk */
+                    /* Set up IHDR chunk */
+                    chunk_p p_IHDR;
+                    if(create_chunk(&p_IHDR, "IHDR", const_width, final_height, NULL) != 0){
+                        perror("Error allocating memory for IHDR chunk for new file");
+                        fclose(output_file);
+                        abort();
+                    }
+                    /* IHDR completed */
+                    write_chunk(output_file, p_IHDR);
+
+                /* Write IDAT chunk */
+                    /* Set up IDAT chunk */
+                    chunk_p p_IDAT;
+                    if(create_chunk(&p_IDAT, "IDAT", (U32)copy_comp_size, 0, total_comp) != 0){
+                        perror("Error allocating memory for IDAT chunk for new file");
+                        fclose(output_file);
+                        abort();
+                    }
+                    /* IDAT completed */
+                    write_chunk(output_file, p_IDAT);
+
+                /* Write IEND chunk */
+                    /* Set up IEND chunk */
+                    chunk_p p_IEND;
+                    if(create_chunk(&p_IEND, "IEND", 0, 0, NULL) != 0){
+                        perror("Error allocating memory for IEND chunk for new file");
+                        fclose(output_file);
+                        abort();
+                    }
+                    /* IEND completed */
+                    write_chunk(output_file, p_IEND);
+
+            /* File is finished */
+            fclose(output_file);
+        }
 
     /* End time after all.png is generated */
         if(gettimeofday(&tv, NULL) != 0){
@@ -135,6 +189,20 @@ int main(int argc, char **argv) {
     
     /* Print the measured time */
         printf("%s execution time: %.6lf seconds\n", argv[0], times[1]-times[0]);
+
+    /* Cleanup all dynamic memory */
+        cleanup_image_queue(image_queue);
+    
+        /* Detach shm */
+        if(shmdt(image_queue) == -1){
+            perror("shmdt");
+            exit(1);
+        }
+        /* Remove shm */
+        if(shmctl(shm_id, IPC_RMID, NULL) == -1){
+            perror("shmctl");
+            exit(1);
+        }
 
     return 0;
 }
