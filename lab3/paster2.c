@@ -118,6 +118,7 @@ int main(int argc, char **argv) {
                 waitpid(cpids[i], NULL, 0);
             }
             /* --- TO BE IMPLEMENTED --- */
+                comsumer_process(image_queue, X );
             /* Compress image and build the file */
         }
 
