@@ -21,13 +21,14 @@
 size_t header_cb_curl(char *p_recv, size_t size, size_t nmemb, void *userdata)
 {
     int realsize = size * nmemb;
-    recv_buf *p = userdata;
+    recv_buf *p = (recv_buf *)userdata;
     
     if (realsize > strlen(ECE252_HEADER) &&
 	    strncmp(p_recv, ECE252_HEADER, strlen(ECE252_HEADER)) == 0) {
         /* extract img sequence number */
 	    p->seq = atoi(p_recv + strlen(ECE252_HEADER));
     }
+
     return realsize;
 }
 
@@ -47,6 +48,9 @@ size_t write_cb_curl(char *p_recv, size_t size, size_t nmemb, void *p_userdata)
  
     if (p->size + realsize + 1 > p->max_size) {/* hope this rarely happens */ 
         fprintf(stderr, "User buffer is too small, abort...\n");
+
+        fflush(stderr);
+
         abort();
     }
 
@@ -65,21 +69,6 @@ void producer_process(CircularQueue *queue, int machine_num, int img_num) {
     curl_global_init(CURL_GLOBAL_DEFAULT);
     curl_handle = curl_easy_init();
     if (curl_handle) {
-        /* init the recv_buf */
-        recv_buf *img = init_image_buf();
-        if(img == NULL){
-            perror("Error creating buffer for CURL");
-            curl_easy_cleanup(curl_handle);
-            curl_global_cleanup();
-            exit(EXIT_FAILURE);
-        }
-
-        curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, write_cb_curl);
-        curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, img);
-        curl_easy_setopt(curl_handle, CURLOPT_HEADERFUNCTION, header_cb_curl);
-        curl_easy_setopt(curl_handle, CURLOPT_HEADERDATA, img);
-        curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "libcurl-agent/1.0");
-
         /* Check if all strips are downloaded already */
         while(1){
             /* Set up url to access */
@@ -89,10 +78,25 @@ void producer_process(CircularQueue *queue, int machine_num, int img_num) {
                     break;
                 }
                 char url[256];
-                snprintf(url, sizeof(url), "http://ece252-%d.uwaterloo.ca:2530/image?img=%d&part=%d", machine_num, img_num, queue->last_seq);
+                snprintf(url, sizeof(url), "http://ece252-%d.uwaterloo.ca:2530/image?img=%d&part=%d", machine_num, img_num, queue->last_seq);                
                 queue->last_seq++;
             sem_post(&queue->access_sem);
+
+            /* init the recv_buf */
+            recv_buf *img = init_image_buf();
+            if(img == NULL){
+                perror("Error creating buffer for CURL");
+                curl_easy_cleanup(curl_handle);
+                curl_global_cleanup();
+                exit(EXIT_FAILURE);
+            }
+
             curl_easy_setopt(curl_handle, CURLOPT_URL, url);
+            curl_easy_setopt(curl_handle, CURLOPT_WRITEFUNCTION, write_cb_curl);
+            curl_easy_setopt(curl_handle, CURLOPT_WRITEDATA, (void*)img);
+            curl_easy_setopt(curl_handle, CURLOPT_HEADERFUNCTION, header_cb_curl);
+            curl_easy_setopt(curl_handle, CURLOPT_HEADERDATA, (void*)img);
+            curl_easy_setopt(curl_handle, CURLOPT_USERAGENT, "libcurl-agent/1.0");
 
             /* Request strip */
             res = curl_easy_perform(curl_handle);
@@ -108,20 +112,26 @@ void producer_process(CircularQueue *queue, int machine_num, int img_num) {
             /* If this strips has not been downloaded, download it */
             if (img->seq >= 0 && queue->last_seq <= MAX_STRIPS) {
                 /* Add the provided buffer to the array */
-                queue->buf[queue->in] = img;
+                memcpy(queue->buf[queue->in]->buf, img->buf, img->size);
+                queue->buf[queue->in]->size = img->size;
+                queue->buf[queue->in]->max_size = img->max_size;
+                queue->buf[queue->in]->seq = img->seq;
+
                 /* Increment count of recv_buf in the array */
                 queue->num++;
-                queue->in = (queue->in + 1)%(queue->capacity);
-            } else {
-                if(img->buf != NULL){
-                    free(img->buf);
-                }
-                free(img);
-                img = NULL;
+                queue->in = (queue->in + 1) % queue->capacity;
             }
 
-            /* Decrement full */
+            /* img is no longer needed, free it */
+            if(img->buf != NULL){
+                free(img->buf);
+            }
+            free(img);
+            img = NULL;
+
+            /* Increment full */
             sem_post(&queue->full);
+
             /* Exit critical section */
             sem_post(&queue->prod_sem);
         }
