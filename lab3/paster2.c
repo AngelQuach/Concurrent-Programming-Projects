@@ -37,11 +37,11 @@ int main(int argc, char **argv) {
         }
 
     /* Read input */
-        int B = *(int*)argv[1];           /* buf size */
-        int P = *(int*)argv[2];           /* num of producers */
-        int C = *(int*)argv[3];           /* num of consumers */
-        int X = *(int*)argv[4];           /* milisec of consumer sleep */
-        int N = *(int*)argv[5];           /* image num */
+        int B = atoi(argv[1]);           /* buf size */
+        int P = atoi(argv[2]);           /* num of producers */
+        int C = atoi(argv[3]);           /* num of consumers */
+        int X = atoi(argv[4]);           /* milisec of consumer sleep */
+        int N = atoi(argv[5]);           /* image num */
 
     /* Declare variables */
         /* Start and end time */
@@ -51,7 +51,7 @@ int main(int argc, char **argv) {
     /* Declare shm */
         /* Create shared memory segment */
         CircularQueue *image_queue;
-        int shm_size = sizeof(CircularQueue);
+        int shm_size = sizeof(CircularQueue) + B * (sizeof(recv_buf *) + sizeof(recv_buf) + BUF_SIZE) + uncomp_size;
         int shm_id = shmget(IPC_PRIVATE, shm_size, IPC_CREAT | IPC_EXCL | S_IRUSR | S_IWUSR);
         if(shm_id == -1) {
             perror("shmget");
@@ -77,8 +77,11 @@ int main(int argc, char **argv) {
     /* The following code is modified from starter code forkN.c */
         pid_t pid = 0;
         pid_t cpids[P + C];
+        int p_count = 0;
+        int p_offset = 0;
+        int c_count = 0;
         /* Create producer processes */
-        for (int i = 0; i < P; i++) {
+        for (int i = 0; i < (P + C); i++) {
             pid = fork();
 
             if (pid < 0){        /* Error handling */
@@ -86,31 +89,18 @@ int main(int argc, char **argv) {
                 abort();
             } 
         
-            if (pid > 0) {        /* parent proc */
-                cpids[i] = pid;
-            } else{               /* child proc */
-                /* Do producer tasks */
-                producer_process(image_queue, (1 + (i%3)), N);
-                exit(0);
+            if (pid == 0){               /* child proc */
+                if(i < P){            /* Let child be producer if i is even */
+                    /* Do producer tasks */
+                    producer_process(image_queue, (1 + (i%3)), N);
+                    exit(0);
+                } else{                     /* Let child be consumer if i is odd */
+                    /* Do consumer tasks */
+                    comsumer_process(image_queue, X);
+                    exit(0);
+                }
             } 
-        }
-
-    /* Create consumer processes */
-        for (int i = 0; i < C; i++) {
-            pid = fork();
-
-            if (pid < 0){        /* Error handling */
-                perror("fork");
-                abort();
-            } 
-        
-            if (pid > 0) {        /* parent proc */
-                cpids[P + i] = pid;
-            } else{               /* child proc */
-                /* Do consumer tasks */
-                comsumer_process(image_queue, X);
-                exit(0);
-            }
+            cpids[i] = pid;
         }
     
     /* parent process */
@@ -153,6 +143,8 @@ int main(int argc, char **argv) {
                     }
                     /* IHDR completed */
                     write_chunk(output_file, p_IHDR);
+                    free(p_IHDR->p_data);
+                    free(p_IHDR);
 
                 /* Write IDAT chunk */
                     /* Set up IDAT chunk */
@@ -164,6 +156,8 @@ int main(int argc, char **argv) {
                     }
                     /* IDAT completed */
                     write_chunk(output_file, p_IDAT);
+                    free(p_IDAT->p_data);
+                    free(p_IDAT);
 
                 /* Write IEND chunk */
                     /* Set up IEND chunk */
@@ -175,6 +169,7 @@ int main(int argc, char **argv) {
                     }
                     /* IEND completed */
                     write_chunk(output_file, p_IEND);
+                    free(p_IEND);
 
             /* File is finished */
             fclose(output_file);
@@ -191,8 +186,6 @@ int main(int argc, char **argv) {
         printf("%s execution time: %.6lf seconds\n", argv[0], times[1]-times[0]);
 
     /* Cleanup all dynamic memory */
-        cleanup_image_queue(image_queue);
-    
         /* Detach shm */
         if(shmdt(image_queue) == -1){
             perror("shmdt");
