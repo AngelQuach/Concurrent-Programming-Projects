@@ -15,6 +15,7 @@
 
 #define BUF_SIZE 1048576    /* 1024*1024 = 1M */
 #define MAX_STRIPS 50       /* Total num of image strips */
+#define uncomp_size 480300  /* total size of uncompressed strips */
 
 typedef struct{
     char *uncomp_image;
@@ -27,6 +28,7 @@ typedef struct{
     int in;                 /* index for producer */
     int out;                /* index for consumer */
     int last_seq;           /* seq of the last downloaded image strip */
+    int counter;            /* number of strips already downloaded */
     
     sem_t prod_sem;         /* The semaphore to be shared among producers/consumers */
     sem_t cons_sem;
@@ -37,7 +39,6 @@ typedef struct{
 
 void init_semaphores(CircularQueue *image_queue, int buffer_size);
 void init_image_queue(CircularQueue *image_queue, int buffer_size);
-void cleanup_image_queue(CircularQueue *image_queue);
 
 void producer_process(CircularQueue *queue, int machine_num, int img_num);
 void comsumer_process(void *shm, int arg);
