@@ -77,9 +77,6 @@ int main(int argc, char **argv) {
     /* The following code is modified from starter code forkN.c */
         pid_t pid = 0;
         pid_t cpids[P + C];
-        int p_count = 0;
-        int p_offset = 0;
-        int c_count = 0;
         /* Create producer processes */
         for (int i = 0; i < (P + C); i++) {
             pid = fork();
