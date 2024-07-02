@@ -7,14 +7,20 @@
 #include "recv_buf.h"
 
 recv_buf *segment = NULL;
-int counter = 0;
 
 
 void comsumer_process(void *shm, int arg){
     CircularQueue *queue = (CircularQueue *)shm;
      int X = arg; // Consumer sleep time in milliseconds
      while (1) {
+        if(queue->counter >= MAX_STRIPS){
+            sem_post(&queue->full);
+            sem_post(&queue->cons_sem);
+            break;
+        }
+
         sem_wait(&queue->full);
+
         sem_wait(&queue->cons_sem);
 
         if(queue->num > 0){
@@ -24,8 +30,7 @@ void comsumer_process(void *shm, int arg){
             queue->out = (queue->out +1) % queue->capacity;
             /*reflected that one item has been consumed*/
             queue->num --;
-            counter ++;
-
+            queue->counter++;
 
             /*Sleep for a specified duration and simulate processing time*/
             usleep(X* 1000);
@@ -51,20 +56,20 @@ void comsumer_process(void *shm, int arg){
             size_t offset = segment->seq * copy_strip_uncomp_size;
             memcpy(queue->uncomp_image + offset, buf_strip_uncomp, copy_strip_uncomp_size );
 
-            sem_post(&queue->cons_sem);
+            /* Clear buffer of the index accessed */
+            memset(segment->buf, 0, segment->size);
+
             sem_post(&queue->empty); /*signal that there's an empty slot*/
+
+            sem_post(&queue->cons_sem);
 
             /*free the allocated memory*/
             free(p_comp_IDAT);
             free(buf_strip_uncomp);
-            free(segment->buf);
-
-            if(counter == 50){
-                break;
-            }
         }else{
-            sem_post(&queue->cons_sem);
             sem_post(&queue->full);
+            sem_post(&queue->cons_sem);
+            break;
         }
-     }
+    }
 }
