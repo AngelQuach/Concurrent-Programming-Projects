@@ -2,6 +2,8 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
+#include <time.h>
+#include <sys/time.h>
 #include "data_structure.h"     /* For data strucutres */
 #include "thread_func.h"        /* For pthreads */
 #include "main.h"               /* For CURL functions */
@@ -70,34 +72,42 @@ int main(int argc, char* argv[])
     }
 
     /* Set up shared url_frontier */
-    initQueue(&url_frontiers); 
-
-    /* Add SEED url to the CircularQueue */
-    while(enqueue(&url_frontiers, input_url) != 0);
-
-    printf("successfully enqueue url! index: %d, url: %s\n", url_frontiers.front, url_frontiers.urls[url_frontiers.front]);
+        initQueue(&url_frontiers); 
+        /* Add SEED url to the CircularQueue */
+        while(enqueue(&url_frontiers, input_url) != 0);
 
     /*Set up url_visited*/
-    initHashTable(&url_visited);
+        initHashTable(&url_visited);
 
     /*Set up PNG_url*/
-    initArray(&PNG_url);
+        initArray(&PNG_url);
+
+    /* Declare variables */
+        /* Start and end time */
+        double times[2];
+        struct timeval tv;
+
+    /* Record starting time */
+        if(gettimeofday(&tv, NULL) != 0){
+            perror("gettimeofday");
+            abort();
+        }
+        times[0] = (tv.tv_sec) + tv.tv_usec/1000000.;
 
     /* Var. for threads */
     pthread_t *p_tids = malloc(sizeof(pthread_t) * num_threads);
-    if (p_tids == NULL) {
-        fprintf(stderr, "Failed to allocate memory for thread arrays\n");
-        if(p_tids != NULL) free(p_tids);
-        return 1;
-    }
+        if (p_tids == NULL) {
+            fprintf(stderr, "Failed to allocate memory for thread arrays\n");
+            return 1;
+        }
     /* Call the url_handling function for each thread */
-    for(int i = 0; i < num_threads; i++){
-        pthread_create(&p_tids[i], NULL, handle_url, NULL);
-    }
+        for(int i = 0; i < num_threads; i++){
+            pthread_create(&p_tids[i], NULL, handle_url, NULL);
+        }
     /* Wait for all threads to complete */
-    for (int i = 0; i < num_threads; i++) {
-        pthread_join(p_tids[i], NULL);
-    }
+        for (int i = 0; i < num_threads; i++) {
+            pthread_join(p_tids[i], NULL);
+        }
 
     /* Create png urls file */
         FILE *f_output = fopen("png_urls.txt", "w");
@@ -132,10 +142,23 @@ int main(int argc, char* argv[])
             fclose(f_output);
         }
 
+     /* End time after all.png is generated */
+        if(gettimeofday(&tv, NULL) != 0){
+            perror("gettimeofday");
+            abort();
+        }
+        times[1] = (tv.tv_sec) + tv.tv_usec/1000000.;
+    
+    /* Print the measured time */
+        printf("%s execution time: %.6lf seconds\n", argv[0], times[1]-times[0]);    
+
     /* Cleanup all data structures */
+    free(input_url);
+    free(p_tids);
     freeQueue(&url_frontiers);
     freeHashTable(&url_visited);
-    freeArray(&PNG_url);   
+    freeArray(&PNG_url);
+    xmlCleanupParser();   
 }
 
 /* Function for thread to handle url */
@@ -157,15 +180,12 @@ void *handle_url(){
             char *url = dequeue(&url_frontiers, &num_threads);
             if(url == NULL){
                 /* Deallocate dynamic memory */
-                recv_buf_cleanup(recv_buf);
                 free(recv_buf);
                 break;
             }
-            printf("Dequeued url: %s\n", url);
 
             if(checkHashURL(&url_visited, url) == 1){          /* If visited, move on to next url in list */
                 /* Deallocate dynamic memory */
-                recv_buf_cleanup(recv_buf);
                 free(recv_buf);
                 free(url);
                 continue;
@@ -179,6 +199,7 @@ void *handle_url(){
             CURL *curl_handle = easy_handle_init(recv_buf, url);
             if (curl_handle == NULL) {
                 fprintf(stderr, "Curl initialization failed. Exiting...\n");
+                curl_easy_cleanup(curl_handle);
                 recv_buf_cleanup(recv_buf);
                 free(recv_buf);
                 free(url);
@@ -189,18 +210,20 @@ void *handle_url(){
             
         /* If unexpected response */
             if(res != CURLE_OK) {    
-                fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
-                cleanup(curl_handle, recv_buf);
+                //fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+                curl_easy_cleanup(curl_handle);
+                recv_buf_cleanup(recv_buf);
                 free(recv_buf);
                 free(url);
                 continue;                  /* skip the current url */
             }
             
         /* Otherwise check response code by calling general process function*/
-            process_data(&url_frontiers, curl_handle, recv_buf);
+            process_data(&url_frontiers, &PNG_url, curl_handle, recv_buf);
         
         /* Reset curl_handle and recv_buf before next loop starts */
-            cleanup(curl_handle, recv_buf);
+            curl_easy_cleanup(curl_handle);
+            recv_buf_cleanup(recv_buf);
             free(recv_buf);
             free(url);
     }
