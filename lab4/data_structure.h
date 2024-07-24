@@ -36,12 +36,15 @@ typedef struct{
 typedef struct{
     HashEntry* buckets[TABLE_SIZE]; /*array of pointers to hash entries*/
     pthread_mutex_t lock;
+    char *url[MAX_URLS];
+    int count;
 }HashTable;
 
 /*arrays for PNG URL*/
 typedef struct{
     char *urls[MAX_PNG_URLS];
     int count;
+    int PNG_needed;
     pthread_mutex_t lock;
 }URL_Array;
 
@@ -54,7 +57,7 @@ void initHashTable(HashTable* table);
 void addHashURL(HashTable* table, char* url);
 int checkHashURL(HashTable* table, char* url);
 void freeHashTable(HashTable* table);
-void initArray(URL_Array *arr);
+void initArray(URL_Array *arr, int num_PNG);
 int addPNGURL(URL_Array* arr, char* url);
 int countPNGURL(URL_Array *arr);
 void freeArray(URL_Array *arr);
