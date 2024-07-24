@@ -1,0 +1,145 @@
+========================
+Lab 4 marking report
+
+======= PART 1 =======
+>> Running make
+Test Passed: Compiled from makefile +0.5
+
+======= PART 2 =======
+
+-- case 2.1 --
+>> Running: ./findpng2 -t 1 -m 50 http://ece252-1.uwaterloo.ca/lab4
+Document not parsed successfully.
+
+cat: png_urls.txt: No such file or directory
+Found: 0
+find: ‘png_urls.txt’: No such file or directory
+Test Failed: Running with -t 1 -m 50 did not collect 50 unique and valid pngs -1
+
+-- case 2.2 --
+>> Running: ./findpng2 -t 1 -m 100 -v log.txt http://ece252-1.uwaterloo.ca/lab4
+Document not parsed successfully.
+
+cat: png_urls.txt: No such file or directory
+Found: 0 pngs
+./eval4.sh: line 273: log.txt: No such file or directory
+Found:  logs
+find: ‘png_urls.txt’: No such file or directory
+Test Failed: Running with -t 1 -m 100 did not visit >= 347 urls and collect 50 unique, valid pngs -2
+
+======= PART 3 =======
+Calling with -t 17
+>> Running: ./findpng2 -t 17 -m 100 -v log.txt http://ece252-1.uwaterloo.ca/lab4
+Document not parsed successfully.
+Thread count: 17
+
+
+-- case 3.1 --
+Test Passed: Correctly spawns only 17 threads with -t =17 +1
+
+-- case 3.2 --
+cat: png_urls.txt: No such file or directory
+Found: 0
+Confirming that pngs found are valid
+./eval4.sh: line 349: png_urls.txt: No such file or directory
+find: ‘png_urls.txt’: No such file or directory
+Test Failed: Crawled fewer than expected URLs -1
+
+-- case 4.1 --
+Test Passed: Student made efforts to reduce busywaiting through sem_waits or pthread_cond_waits +1
+
+======= PART 5 =======
+Running 3 test cases for timings test
+Executions are:
+>> ./findpng2 -t 1 -m 20
+>> ./findpng2 -t 10 -m 20
+>> ./findpng2 -t 20 -m 20
+Beginning...
+Document not parsed successfully.
+Document not parsed successfully.
+Document not parsed successfully.
+Document not parsed successfully.
+Document not parsed successfully.
+Document not parsed successfully.
+Document not parsed successfully.
+Document not parsed successfully.
+Document not parsed successfully.
+Document not parsed successfully.
+Document not parsed successfully.
+Document not parsed successfully.
+Document not parsed successfully.
+Document not parsed successfully.
+Document not parsed successfully.
+1 Worker
+ avg (5 runs):30.29
+10 Workers:
+ avg (5 runs):3.54
+20 Workers:
+ avg (5 runs):2.12
+
+-- case 5.1 --
+Test Failed: Running with -t20 was < 2x faster than -t1 -1
+
+-- case 5.2 --
+Test Failed: Running with -t10 was < 2x faster than -t1 -1
+
+======= PART 6 =======
+Running 3 test cases for results test
+Document not parsed successfully.
+>> Running: ./findpng2 -t 20 -m 3 -v log.txt http://ece252-1.uwaterloo.ca/lab4
+Now we have: 1
+Now we have: 2
+Now we have: 3
+Now we have: 4
+Now we have: 5
+Now we have: 6
+./findpng2 execution time: 0.842098 seconds
+Document not parsed successfully.
+>> Running: ./findpng2 -t 20 -m 50 -v log.txt http://ece252-1.uwaterloo.ca/lab4
+cat: log.txt: No such file or directory
+cat: png_urls.txt: No such file or directory
+Document not parsed successfully.
+>> Running: ./findpng2 -t 20 -m 100 -v log.txt http://ece252-1.uwaterloo.ca/lab4
+cat: log.txt: No such file or directory
+cat: png_urls.txt: No such file or directory
+
+-- case 6.1 --
+Found 6 for -m=3, 0 for -m=50, and 0 for -m=100
+Test Failed: Number of pngs is different than the expected 3, 50, 50 -1
+
+-- case 6.2 --
+Test Failed: Number of URLs visited for -m 50 > -m 100, or 0 URLs visited -1
+
+-- case 6.3 --
+Test Failed: Run time for -m 100 is more than 2X of -m 50, or test aborted -1
+
+======= PART 7 =======
+
+-- case 7.1 --
+Running valgrind with arguments -t 10 -m 50
+./eval4.sh: line 719: 1732501 Killed                  timeout -s 9 5m valgrind --leak-check=full "./$executable" -t 10 -m 50 -v log.txt $SEED_URL > /dev/null 2> valgrindLog
+Test Failed: Found definitely lost bytes, or test aborted -0.5
+
+===== SUMMARY =====
+
+Tests Passed:
+---------------
+- Compiled from makefile +0.5
+- Correctly spawns only 17 threads with -t =17 +1
+- Student made efforts to reduce busywaiting through sem_waits or pthread_cond_waits +1
+
+Tests Failed:
+---------------
+- Running with -t 1 -m 50 did not collect 50 unique and valid pngs -1
+- Running with -t 1 -m 100 did not visit >= 347 urls and collect 50 unique, valid pngs -2
+- Crawled fewer than expected URLs -1
+- Running with -t20 was < 2x faster than -t1 -1
+- Running with -t10 was < 2x faster than -t1 -1
+- Number of pngs is different than the expected 3, 50, 50 -1
+- Number of URLs visited for -m 50 > -m 100, or 0 URLs visited -1
+- Run time for -m 100 is more than 2X of -m 50, or test aborted -1
+- Found definitely lost bytes, or test aborted -0.5
+########### Score ###########
+Total lab 4 score: 2.5/12
+
+#### Additional Comments ####
