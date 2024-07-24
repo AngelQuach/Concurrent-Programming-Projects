@@ -49,9 +49,9 @@ char* dequeue( CircularQueue *q, int *num_threads ){
         if(q->waiting_thread == *num_threads){
             /* All threads are wating and no more URLs will be added */
             q->waiting_thread--;
+            q->is_done = 1;
             pthread_cond_broadcast(&(q->not_empty));    /* Wake up all waiting threads */
             pthread_mutex_unlock(&q->lock);
-            q->is_done = 1;
             return NULL;
         }
         /* Otherwise, wait for urls to be added */
@@ -102,7 +102,9 @@ unsigned int hash(const char* url){
 void initHashTable(HashTable* table){
     for(int i = 0 ; i < TABLE_SIZE; i ++){
         table->buckets [i] = NULL;
+        table->url[i] = NULL;
     }
+    table->count = 0;
     pthread_mutex_init(&(table->lock), NULL);
 }
 
@@ -116,6 +118,8 @@ void addHashURL(HashTable* table, char* url){
     newEntry->url = strdup(url);
     newEntry->next = table->buckets[index]; /*insert the new entry at the head of the linked list*/
     table->buckets[index] = newEntry;
+    table->url[table->count] = newEntry->url;
+    table->count++;
 
     pthread_mutex_unlock(&(table->lock));
 }
@@ -157,8 +161,9 @@ void freeHashTable(HashTable* table){
 /* Functions for url arrays */
 
 /*initialize array ptr sent*/
-void initArray(URL_Array *arr){
+void initArray(URL_Array *arr, int num_PNG){
     arr->count = 0;
+    arr->PNG_needed = num_PNG;
     pthread_mutex_init(&(arr->lock), NULL); 
 }
 
