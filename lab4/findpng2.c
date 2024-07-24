@@ -25,6 +25,10 @@ int if_logfile = 0;
 char *log_filename = NULL;
 char *input_url = NULL;
 
+/* Semaphore for processing data */
+pthread_mutex_t mutex_PNG;
+pthread_mutex_t mutex_HTTP;
+
 /* Declare pthread function here */
 void *handle_url();
 
@@ -71,6 +75,10 @@ int main(int argc, char* argv[])
         return 1;
     }
 
+    /* Set up the semaphore */
+        pthread_mutex_init(&mutex_PNG, NULL);
+        pthread_mutex_init(&mutex_HTTP, NULL);
+
     /* Set up shared url_frontier */
         initQueue(&url_frontiers); 
         /* Add SEED url to the CircularQueue */
@@ -80,7 +88,7 @@ int main(int argc, char* argv[])
         initHashTable(&url_visited);
 
     /*Set up PNG_url*/
-        initArray(&PNG_url);
+        initArray(&PNG_url, num_unique_PNG);
 
     /* Declare variables */
         /* Start and end time */
@@ -133,9 +141,9 @@ int main(int argc, char* argv[])
                 abort();
             }
         /* Now print to ouput file */
-            for(int i = 0; i < TABLE_SIZE; i++){
-                if (url_visited.buckets[i] != NULL) {
-                    fprintf(f_output, "%s\n", url_visited.buckets[i]->url);
+            for(int i = 0; i < url_visited.count; i++){
+                if(url_visited.url[i] != NULL){
+                    fprintf(f_output, "%s\n", url_visited.url[i]);
                 }
             }
         /* Close the file */
@@ -153,6 +161,8 @@ int main(int argc, char* argv[])
         printf("%s execution time: %.6lf seconds\n", argv[0], times[1]-times[0]);    
 
     /* Cleanup all data structures */
+    pthread_mutex_destroy(&mutex_PNG);
+    pthread_mutex_destroy(&mutex_HTTP);
     free(input_url);
     free(p_tids);
     freeQueue(&url_frontiers);
@@ -168,15 +178,14 @@ void *handle_url(){
 
     /* Check if we have enough unique PNG files yet */
     while(countPNGURL(&PNG_url) < num_unique_PNG){       /* While we haven't reached the desired PNG url count */
-        /* recv_buf to stored output from request */
+        /* recv_buf to store output from request */
         RECV_BUF *recv_buf = malloc(sizeof(RECV_BUF));
         if(recv_buf == NULL){
             printf("failed to allocate memory for recv_buf\n");
             continue;
         }
         
-        /* Check if url has been visited */
-            /* Copy the url from array*/
+        /* Copy the url from array*/
             char *url = dequeue(&url_frontiers, &num_threads);
             if(url == NULL){
                 /* Deallocate dynamic memory */
@@ -184,26 +193,14 @@ void *handle_url(){
                 break;
             }
 
-            if(checkHashURL(&url_visited, url) == 1){          /* If visited, move on to next url in list */
-                /* Deallocate dynamic memory */
-                free(recv_buf);
-                free(url);
-                continue;
-            }
-
-        /* If not visited add to url visited array */
-            addHashURL(&url_visited, url);
-
         /* Send a request to url */
             /* Initialize connection */
             CURL *curl_handle = easy_handle_init(recv_buf, url);
             if (curl_handle == NULL) {
                 fprintf(stderr, "Curl initialization failed. Exiting...\n");
-                curl_easy_cleanup(curl_handle);
-                recv_buf_cleanup(recv_buf);
+                cleanup(curl_handle, recv_buf);
                 free(recv_buf);
                 free(url);
-                curl_global_cleanup();
                 abort();
             }
             CURLcode res = curl_easy_perform(curl_handle);
@@ -219,7 +216,7 @@ void *handle_url(){
             }
             
         /* Otherwise check response code by calling general process function*/
-            process_data(&url_frontiers, &PNG_url, curl_handle, recv_buf);
+            process_data(&url_frontiers, &PNG_url, mutex_PNG, mutex_HTTP, &url_visited, curl_handle, recv_buf);
         
         /* Reset curl_handle and recv_buf before next loop starts */
             curl_easy_cleanup(curl_handle);
@@ -227,6 +224,9 @@ void *handle_url(){
             free(recv_buf);
             free(url);
     }
+    url_frontiers.is_done = 1;
+    pthread_cond_broadcast(&(url_frontiers.not_empty));    /* Wake up all waiting threads */
+    pthread_mutex_unlock(&url_frontiers.lock);
     curl_global_cleanup();
-    return(NULL);
+    return NULL;
 }
