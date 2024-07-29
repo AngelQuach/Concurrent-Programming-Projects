@@ -13,7 +13,7 @@
 #define MAX_PNG_URLS 500
 #define URL_SIZE 256
 #define BUF_SIZE 1048576              /* 1024*1024 = 1M */
-#define MAX_WAIT_MSECS 30*1000        /* Wait max. 10 seconds */
+#define MAX_WAIT_MSECS 10*1000        /* Wait max. 10 seconds */
 #define MAX_RETRIES 3
 
 CircularQueue url_frontiers;          /* url_Frontiers array for storing all urls */
@@ -160,7 +160,6 @@ int main(int argc, char* argv[])
             fclose(f_output);
         }
 
-    printf("GONNA printf the time\n");
     /* End time after all.png is generated */
         if(gettimeofday(&tv, NULL) != 0){
             perror("gettimeofday");
@@ -272,7 +271,7 @@ void *handle_url(CURLM *cm){
                 curl_multi_remove_handle(cm, eh);
                 active_handle_count--;
 
-                if(countPNGURL(&PNG_url) == num_unique_PNG){
+                if(countPNGURL(&PNG_url) == num_unique_PNG || url_frontiers.count == 0){
                     break;
                 }
 
@@ -291,7 +290,7 @@ void *handle_url(CURLM *cm){
                     urls_count++;
 
                     /* As long as there are still url left in frontier AND we can create more handles */
-                    while(active_handle_count < num_handle && url_frontiers.count > 0){
+                    while(handle_count < (num_handle-1) && url_frontiers.count > 0){
                         /* Init and add new handle to multi */
                         init(cm);
                     }
@@ -325,7 +324,7 @@ void *handle_url(CURLM *cm){
             }
         }
         numfds = 0;
-        if(num_handle > 1 && countPNGURL(&PNG_url) == num_unique_PNG){
+        if(countPNGURL(&PNG_url) == num_unique_PNG){
             curl_multi_wait(cm, NULL, 0, MAX_WAIT_MSECS, &numfds);           /* Wait for all handles to finish */
             for(int i = 0; i < handle_count; i++){
                 if(all_handle[i] != NULL && all_handle[i] != eh){            /* Detach all handles */
@@ -333,6 +332,8 @@ void *handle_url(CURLM *cm){
                     active_handle_count--;
                 }
             }
+            break;
+        } else if(url_frontiers.count == 0 && active_handle_count == 0){
             break;
         }
     }
